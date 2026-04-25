@@ -161,11 +161,26 @@ def test_subsumed_veto_does_not_fire():
     assert "durmarana" in trace.rules_subsumed
 
 
-def test_conflicting_unsubsumed_vetoes_raise():
+def test_conflicting_unsubsumed_vetoes_cancel_to_zero():
+    # Classical cancellation: a protective +1.0 veto and a maraka -1.0
+    # veto firing without mutual subsumption neutralize each other.
+    # Final score = 0.0 (severe hardship but survival), and the trace
+    # records both the participating rule_ids and a human-readable
+    # reason so the LLM critic / predictor surfaces it.
     pos = _rule("pos", base_cf=1.0, is_veto=True)
     neg = _rule("neg", base_cf=-1.0, is_veto=True)
-    with pytest.raises(CFEngineError, match="Conflicting vetoes"):
-        infer_cf([_fire(pos), _fire(neg)], _MU, "longevity")
+    score, trace = infer_cf([_fire(pos), _fire(neg)], _MU, "longevity")
+    assert score == 0.0
+    assert trace.final_score == 0.0
+    assert trace.veto_fired is None
+    assert sorted(trace.veto_cancelled) == ["neg", "pos"]
+    assert "Classical cancellation" in trace.veto_cancellation_reason
+    assert "pos" in trace.veto_cancellation_reason
+    assert "neg" in trace.veto_cancellation_reason
+    # Both vetoes still appear in rules_fired so the audit trail is
+    # complete.
+    fired_ids = {r.rule_id for r in trace.rules_fired}
+    assert fired_ids == {"pos", "neg"}
 
 
 # ── Trace content ───────────────────────────────────────────────────

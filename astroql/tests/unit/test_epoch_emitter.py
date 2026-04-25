@@ -129,6 +129,58 @@ def test_invalid_sign_num_raises():
         _aspects.aspected_signs("Sun", 0)
 
 
+# ── Longitudinal aspect strengths (Sphuta Drishti) ──────────────────
+
+def test_aspect_strength_exact_opposition_is_one():
+    # Mars at 0° Aries (lon=0) opposes a target at 180° (Libra 0°).
+    # 7th aspect (offset 6 = 180°) lands exactly on target → 1.0.
+    s = _aspects.aspect_strength_between("Mars", 0.0, 180.0)
+    assert s == pytest.approx(1.0)
+
+
+def test_aspect_strength_decays_linearly_within_orb():
+    # Saturn at 0° Aries; target at 175° (5° short of exact 7th).
+    # With default orb=10°, strength = 1 - 5/10 = 0.5.
+    s = _aspects.aspect_strength_between("Saturn", 0.0, 175.0)
+    assert s == pytest.approx(0.5)
+
+
+def test_aspect_strength_zero_outside_orb():
+    # Mercury (only 7th aspect) at 0°; target 30° away from any
+    # aspect point — well beyond the 10° orb.
+    s = _aspects.aspect_strength_between("Mercury", 0.0, 30.0)
+    assert s == 0.0
+
+
+def test_aspect_strength_review_example_29_aries_to_1_scorpio():
+    # Review's case: Mars at 29° Aries (lon=29) and Saturn at 1°
+    # Scorpio (lon=210). Sign-based math says these are NOT in 7th
+    # aspect (8th sign apart). Longitudinal math: Mars's 7th aspect
+    # is exact at 209°; target at 210° → 1° away → strength 0.9.
+    s = _aspects.aspect_strength_between(
+        aspector="Mars", aspector_lon=29.0, target_lon=210.0,
+    )
+    assert s == pytest.approx(0.9)
+
+
+def test_aspect_strengths_receiving_skips_self_and_zero_entries():
+    # Two planets, only one of which has a non-zero aspect onto target.
+    target_lon = 100.0
+    aspector_lons = {
+        "Saturn": 280.0,  # Saturn's 7th aspect: 280+180=460%360=100 → exact!
+        "Mercury": 50.0,  # Mercury's 7th: 50+180=230 — 130° off → 0
+        "TargetSelf": 100.0,
+    }
+    out = _aspects.aspect_strengths_receiving(
+        target_lon=target_lon,
+        aspector_lons=aspector_lons,
+        skip_target="TargetSelf",
+    )
+    assert "Saturn" in out and out["Saturn"] == pytest.approx(1.0)
+    assert "Mercury" not in out  # zero strength → omitted
+    assert "TargetSelf" not in out
+
+
 # ── Epoch emitter input contract ────────────────────────────────────
 
 def _birth() -> BirthDetails:
@@ -239,3 +291,95 @@ def test_emit_real_json_roundtrip():
         r0.planets[p_name].shadbala_coefficient
         == e0.planets[p_name].shadbala_coefficient
     )
+
+
+# ── New v2 fields: D-9, combustion, graha yuddha, aspect strengths ──
+
+def test_emit_populates_navamsha_signs():
+    tz = ZoneInfo("Asia/Kolkata")
+    a = _dt.datetime(2020, 1, 1, tzinfo=tz)
+    b = _dt.datetime(2020, 1, 5, tzinfo=tz)
+    epochs = emit_epochs(_birth(), a, b)
+    valid_signs = {
+        "Aries", "Taurus", "Gemini", "Cancer", "Leo", "Virgo",
+        "Libra", "Scorpio", "Sagittarius", "Capricorn",
+        "Aquarius", "Pisces",
+    }
+    for ep in epochs:
+        for p, ps in ep.planets.items():
+            # D-9 is chart-static, so every planet must carry a sign.
+            assert ps.navamsha_sign in valid_signs, (
+                f"{p}: navamsha_sign={ps.navamsha_sign!r}"
+            )
+            assert isinstance(ps.is_vargottama, bool)
+            # Vargottama iff D-1 == D-9.
+            if ps.is_vargottama:
+                assert ps.navamsha_sign == ps.natal_sign
+
+
+def test_emit_populates_combustion_and_yuddha_flags():
+    tz = ZoneInfo("Asia/Kolkata")
+    a = _dt.datetime(2020, 1, 1, tzinfo=tz)
+    b = _dt.datetime(2020, 1, 10, tzinfo=tz)
+    epochs = emit_epochs(_birth(), a, b)
+    for ep in epochs:
+        # Sun is never combust by classical convention.
+        assert ep.planets["Sun"].is_combust is False
+        # Nodes have no classical combustion.
+        assert ep.planets["Rahu"].is_combust is False
+        assert ep.planets["Ketu"].is_combust is False
+        # Yuddha is only for the five true planets — Sun/Moon/Nodes
+        # are never marked.
+        for p in ("Sun", "Moon", "Rahu", "Ketu"):
+            assert ep.planets[p].is_in_graha_yuddha is False, (
+                f"{p} should never be in yuddha"
+            )
+        # When a planet is in yuddha, it has an opponent and a
+        # win/lose flag.
+        for p, ps in ep.planets.items():
+            if ps.is_in_graha_yuddha:
+                assert ps.graha_yuddha_opponent != ""
+                # Opponent must be one of the five true planets.
+                assert ps.graha_yuddha_opponent in (
+                    "Mars", "Mercury", "Jupiter", "Venus", "Saturn"
+                )
+
+
+def test_emit_populates_aspect_strengths_in_unit_range():
+    tz = ZoneInfo("Asia/Kolkata")
+    a = _dt.datetime(2020, 1, 1, tzinfo=tz)
+    b = _dt.datetime(2020, 1, 10, tzinfo=tz)
+    epochs = emit_epochs(_birth(), a, b)
+    # Every aspect strength is in (0, 1] when present (zero entries
+    # are pruned from the dict at emit time).
+    for ep in epochs:
+        for ps in ep.planets.values():
+            for s in ps.aspect_strengths_receiving.values():
+                assert 0.0 < s <= 1.0
+            for s in ps.aspect_strengths_on_natal.values():
+                assert 0.0 < s <= 1.0
+
+
+def test_emit_split_on_ingress_yields_more_epochs():
+    # Over a 6-month window, slow-planet ingresses should at least
+    # match (and typically exceed) the SD count from the legacy
+    # midpoint-only emission.
+    tz = ZoneInfo("Asia/Kolkata")
+    a = _dt.datetime(2020, 1, 1, tzinfo=tz)
+    b = _dt.datetime(2020, 7, 1, tzinfo=tz)
+    legacy = emit_epochs(_birth(), a, b, split_on_ingress=False)
+    split = emit_epochs(_birth(), a, b, split_on_ingress=True)
+    assert len(split) >= len(legacy)
+    # Chunked SDs use ".cN" suffix; legacy IDs never carry one.
+    assert all(".c" not in e.epoch_id for e in legacy)
+
+
+def test_emit_split_chunks_have_non_overlapping_intervals():
+    tz = ZoneInfo("Asia/Kolkata")
+    a = _dt.datetime(2020, 1, 1, tzinfo=tz)
+    b = _dt.datetime(2020, 4, 1, tzinfo=tz)
+    epochs = emit_epochs(_birth(), a, b, split_on_ingress=True)
+    # Adjacent epochs must be contiguous and non-overlapping.
+    for i in range(1, len(epochs)):
+        assert epochs[i].start_time >= epochs[i - 1].end_time
+        assert epochs[i].end_time > epochs[i].start_time

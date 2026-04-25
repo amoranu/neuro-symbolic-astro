@@ -19,7 +19,7 @@ from __future__ import annotations
 import datetime as _dt
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 try:
     from zoneinfo import ZoneInfo
@@ -37,6 +37,13 @@ from . import ashtakavarga as _ashtakavarga
 from . import shadbala as _sb
 
 
+# Planets eligible for Graha Yuddha (BPHS): the five true planets only.
+# Sun/Moon/Rahu/Ketu are excluded per classical convention.
+_YUDDHA_PLANETS = ("Mars", "Mercury", "Jupiter", "Venus", "Saturn")
+# Yuddha orb: planets within 1° of longitude.
+_YUDDHA_ORB_DEG = 1.0
+
+
 # astro-prod engine import (mirrors astroql/chart/computer.py).
 _ASTRO_PROD_PATH = Path(
     "C:/Users/ravii/.gemini/antigravity/playground/astro-prod"
@@ -48,6 +55,21 @@ from astro_engine import AstroEngine  # noqa: E402
 
 
 DEFAULT_MAX_WINDOW_YEARS = 10.0
+
+# Default planets whose sign ingresses split an SD into sub-epochs.
+# Excludes Moon (~2.25 days/sign — would explode epoch count). Sun /
+# Mercury / Venus ingress every ~20-30 days; Mars / Jupiter / Saturn /
+# Rahu / Ketu are slower. Callers can override via `ingress_planets`.
+SLOW_INGRESS_PLANETS: tuple = (
+    "Sun", "Mercury", "Venus", "Mars", "Jupiter", "Saturn", "Rahu", "Ketu",
+)
+# Sampling step for ingress detection. Bracketing samples this far
+# apart will not skip a slow-planet ingress (Moon ingress requires a
+# tighter step; opt in via `include_moon_ingresses`).
+_INGRESS_SAMPLE_HOURS_DEFAULT = 24.0
+_INGRESS_SAMPLE_HOURS_WITH_MOON = 6.0
+# Binary-search precision (seconds) for nailing ingress moment.
+_INGRESS_SEARCH_PRECISION_SEC = 60.0
 
 
 class EpochEmissionError(RuntimeError):
@@ -157,12 +179,147 @@ def _parse_sd_date(s: str, tz_name: str) -> _dt.datetime:
     )
 
 
+def _detect_graha_yuddha(
+    tr_positions: Dict[str, Any],
+) -> Dict[str, Dict[str, Any]]:
+    """Identify Graha Yuddha pairs in a transit snapshot.
+
+    Returns `{planet_name: {"opponent": str, "lost": bool}}` for every
+    true planet within `_YUDDHA_ORB_DEG` of another. The "loser" is
+    the slower-moving planet (smaller |daily_speed|); when speeds are
+    equal we mark the alphabetically-later one as loser to keep the
+    decision deterministic. Planets not in yuddha are absent from the
+    result.
+    """
+    out: Dict[str, Dict[str, Any]] = {}
+    for i, p1 in enumerate(_YUDDHA_PLANETS):
+        d1 = tr_positions.get(p1)
+        if d1 is None:
+            continue
+        for p2 in _YUDDHA_PLANETS[i + 1:]:
+            d2 = tr_positions.get(p2)
+            if d2 is None:
+                continue
+            diff = abs(float(d1["longitude"]) - float(d2["longitude"])) % 360
+            if diff > 180:
+                diff = 360 - diff
+            if diff >= _YUDDHA_ORB_DEG:
+                continue
+            spd1 = abs(float(d1.get("daily_speed") or 0.0))
+            spd2 = abs(float(d2.get("daily_speed") or 0.0))
+            if spd1 > spd2:
+                winner, loser = p1, p2
+            elif spd2 > spd1:
+                winner, loser = p2, p1
+            else:
+                # Tie-break deterministically.
+                winner, loser = sorted((p1, p2))
+            out[loser] = {"opponent": winner, "lost": True}
+            out[winner] = {"opponent": loser, "lost": False}
+    return out
+
+
+def _sign_num_at(
+    engine: Any,
+    when: _dt.datetime,
+    lat: float,
+    lon: float,
+    planet: str,
+) -> Optional[int]:
+    """Single-planet sign_num lookup at a moment. Returns None if the
+    engine doesn't return that planet (e.g. outer-only configs)."""
+    pos = engine.calculate_planetary_positions(when, lat, lon)
+    rec = pos.get(planet)
+    if rec is None:
+        return None
+    return int(rec["sign_num"])
+
+
+def _find_ingresses_in_window(
+    engine: Any,
+    start: _dt.datetime,
+    end: _dt.datetime,
+    lat: float,
+    lon: float,
+    tracked_planets: Iterable[str],
+    sample_hours: float,
+) -> List[_dt.datetime]:
+    """Return sorted, deduplicated ingress timestamps in (start, end)
+    for any of `tracked_planets`. Each timestamp is the moment the
+    planet's sidereal sign_num changes, located by binary search
+    between bracketing samples to within `_INGRESS_SEARCH_PRECISION_SEC`.
+
+    The samples at `start` and `end` themselves are not returned as
+    ingresses; only interior crossings.
+    """
+    duration = (end - start).total_seconds()
+    if duration <= 0:
+        return []
+    # Build the sample grid: start, start+step, ..., end (clamped).
+    step = max(60.0, sample_hours * 3600.0)
+    n_steps = max(1, int(duration // step))
+    samples: List[_dt.datetime] = [start]
+    for i in range(1, n_steps):
+        samples.append(start + _dt.timedelta(seconds=step * i))
+    samples.append(end)
+
+    # Snapshot positions at every sample — one engine call per sample.
+    snapshot_signs: List[Dict[str, int]] = []
+    for s in samples:
+        pos = engine.calculate_planetary_positions(s, lat, lon)
+        snapshot_signs.append({
+            p: int(pos[p]["sign_num"])
+            for p in tracked_planets
+            if p in pos
+        })
+
+    ingress_moments: List[_dt.datetime] = []
+    for i in range(len(samples) - 1):
+        t0, t1 = samples[i], samples[i + 1]
+        s0, s1 = snapshot_signs[i], snapshot_signs[i + 1]
+        for planet in tracked_planets:
+            sn0 = s0.get(planet)
+            sn1 = s1.get(planet)
+            if sn0 is None or sn1 is None or sn0 == sn1:
+                continue
+            # Binary-search the ingress between t0 and t1. The end
+            # sign at t1 is the post-ingress sign; we find the
+            # earliest moment whose sign != sn0.
+            lo, hi = t0, t1
+            target_post = sn1
+            while (hi - lo).total_seconds() > _INGRESS_SEARCH_PRECISION_SEC:
+                mid = lo + (hi - lo) / 2
+                sn_mid = _sign_num_at(engine, mid, lat, lon, planet)
+                if sn_mid is None:
+                    break
+                if sn_mid == sn0:
+                    lo = mid
+                else:
+                    hi = mid
+            # Use `hi` — the first known sample on the post-ingress
+            # side. Drop if it landed at the window boundary.
+            if start < hi < end:
+                ingress_moments.append(hi)
+
+    # Dedup and sort. Two planets ingressing within 1 minute collapse
+    # to a single split moment.
+    ingress_moments.sort()
+    deduped: List[_dt.datetime] = []
+    for t in ingress_moments:
+        if not deduped or (t - deduped[-1]).total_seconds() > 60.0:
+            deduped.append(t)
+    return deduped
+
+
 def emit_epochs(
     birth: BirthDetails,
     query_start: _dt.datetime,
     query_end: _dt.datetime,
     max_window_years: float = DEFAULT_MAX_WINDOW_YEARS,
     include_aspects: bool = True,
+    split_on_ingress: bool = True,
+    include_moon_ingresses: bool = False,
+    ingress_planets: Optional[Iterable[str]] = None,
 ) -> List[EpochState]:
     """Emit sookshma-granularity `EpochState`s covering [query_start,
     query_end]. Both boundaries are required.
@@ -217,6 +374,24 @@ def emit_epochs(
     natal_house_by_planet: Dict[str, int] = {
         p: _whole_sign_house(int(d["sign_num"]), natal_lagna_sign_num)
         for p, d in natal_positions.items()
+    }
+
+    # ── Natal D-9 (Navamsha) chart — chart-static, computed once ────
+    # `get_divisional_chart` returns {planet: {"rashi": ..., "sign_num": ...}}
+    # for the full input set; we filter to the Parashari planets after.
+    try:
+        natal_d9_raw = engine.get_divisional_chart(natal_positions, 9)
+    except Exception:
+        natal_d9_raw = {}
+    natal_navamsha_sign_by_planet: Dict[str, str] = {
+        p: d.get("rashi", "")
+        for p, d in natal_d9_raw.items()
+        if p in _sb.PARASHARI_PLANETS
+    }
+    natal_vargottama_by_planet: Dict[str, bool] = {
+        p: bool(natal_navamsha_sign_by_planet.get(p) == natal_sign_by_planet.get(p)
+                and natal_navamsha_sign_by_planet.get(p))
+        for p in natal_sign_by_planet
     }
 
     natal_shadbala = engine.calculate_shadbala(
@@ -274,6 +449,19 @@ def emit_epochs(
     )
     sd_records = [r for r in raw_seq if r.get("type") == "SD"]
 
+    # Resolve which planets' ingresses split SDs.
+    if ingress_planets is None:
+        tracked_planets: List[str] = list(SLOW_INGRESS_PLANETS)
+        if include_moon_ingresses:
+            tracked_planets.append("Moon")
+    else:
+        tracked_planets = [p for p in ingress_planets]
+    sample_hours = (
+        _INGRESS_SAMPLE_HOURS_WITH_MOON
+        if "Moon" in tracked_planets
+        else _INGRESS_SAMPLE_HOURS_DEFAULT
+    )
+
     epochs: List[EpochState] = []
     for idx, rec in enumerate(sd_records):
         start = _parse_sd_date(rec["start"], birth.tz)
@@ -286,78 +474,199 @@ def emit_epochs(
         if end <= start:
             continue
 
-        mid = start + (end - start) / 2
-        tr_positions_raw = engine.calculate_planetary_positions(
-            mid, birth.lat, birth.lon,
-        )
-        tr_positions: Dict[str, Any] = {
-            p: d for p, d in tr_positions_raw.items()
-            if p in _sb.PARASHARI_PLANETS
-        }
-        tr_sign_by_planet: Dict[str, str] = {
-            p: d["rashi"] for p, d in tr_positions.items()
-        }
-        tr_sign_num_by_planet: Dict[str, int] = {
-            p: int(d["sign_num"]) for p, d in tr_positions.items()
-        }
-        tr_retro_by_planet: Dict[str, bool] = {
-            p: bool(d.get("is_retrograde", False))
-            for p, d in tr_positions.items()
-        }
-
-        planets_out: Dict[str, PlanetEpochState] = {}
-        for planet in tr_positions.keys():
-            tr_sign = tr_sign_by_planet[planet]
-            tr_sign_num = tr_sign_num_by_planet[planet]
-            tr_house = _whole_sign_house(
-                tr_sign_num, natal_lagna_sign_num,
+        # ── Build chunk boundaries ──────────────────────────────────
+        # Default: one chunk = the full SD (legacy behavior). With
+        # `split_on_ingress=True`, additional split points are inserted
+        # at every tracked-planet sign ingress within the SD window.
+        if split_on_ingress and tracked_planets:
+            ingresses = _find_ingresses_in_window(
+                engine=engine,
+                start=start,
+                end=end,
+                lat=birth.lat,
+                lon=birth.lon,
+                tracked_planets=tracked_planets,
+                sample_hours=sample_hours,
             )
-            rec_aspects: List[str] = []
-            on_natal: List[str] = []
-            if include_aspects:
-                rec_aspects = _aspects.aspects_receiving(
-                    planet, tr_sign_num, tr_sign_num_by_planet,
-                )
-                # Transit-on-natal: which transiting planets aspect
-                # *this* planet's natal sign? Computed against the
-                # current transit-position table for the *aspectors*,
-                # but the target sign is this planet's natal sign.
-                natal_sign_num = natal_sign_num_by_planet.get(planet)
-                if natal_sign_num is not None:
-                    on_natal = _aspects.aspects_receiving(
-                        planet, natal_sign_num, tr_sign_num_by_planet,
-                    )
-            planets_out[planet] = PlanetEpochState(
-                transit_sign=tr_sign,
-                transit_house=tr_house,
-                natal_house=natal_house_by_planet.get(planet, 0),
-                shadbala_coefficient=mu_by_planet.get(planet, 0.0),
-                shadbala_virupas=natal_virupas.get(planet),
-                is_retrograde=tr_retro_by_planet[planet],
-                aspects_receiving=rec_aspects,
-                aspects_on_natal=on_natal,
-                natal_sign=natal_sign_by_planet.get(planet, ""),
-            )
+            chunk_boundaries = [start, *ingresses, end]
+        else:
+            chunk_boundaries = [start, end]
 
-        dashas = DashaStack(
-            maha=rec.get("lord") or "",
-            antar=rec.get("sub_lord") or "",
-            pratyantar=rec.get("prat_lord") or "",
-            sookshma=rec.get("sookshma_lord") or "",
-        )
-        epoch_id = (
-            f"{dashas.maha}-{dashas.antar}-{dashas.pratyantar}-"
-            f"{dashas.sookshma}@{start.date().isoformat()}#{idx}"
-        )
-        epochs.append(EpochState(
-            epoch_id=epoch_id,
-            start_time=start,
-            end_time=end,
-            dashas=dashas,
-            planets=planets_out,
-            natal_lagna_sign=natal_lagna["rashi"],
-            derived_lords=derived_lords,
-            ashtakavarga=bav_table,
-        ))
-
+        for chunk_idx in range(len(chunk_boundaries) - 1):
+            chunk_start = chunk_boundaries[chunk_idx]
+            chunk_end = chunk_boundaries[chunk_idx + 1]
+            if chunk_end <= chunk_start:
+                continue
+            epochs.append(_build_epoch_for_chunk(
+                engine=engine,
+                birth=birth,
+                rec=rec,
+                idx=idx,
+                chunk_idx=chunk_idx,
+                chunk_total=len(chunk_boundaries) - 1,
+                chunk_start=chunk_start,
+                chunk_end=chunk_end,
+                include_aspects=include_aspects,
+                natal_lagna=natal_lagna,
+                natal_lagna_sign_num=natal_lagna_sign_num,
+                natal_sign_by_planet=natal_sign_by_planet,
+                natal_sign_num_by_planet=natal_sign_num_by_planet,
+                natal_house_by_planet=natal_house_by_planet,
+                natal_positions=natal_positions,
+                natal_navamsha_sign_by_planet=natal_navamsha_sign_by_planet,
+                natal_vargottama_by_planet=natal_vargottama_by_planet,
+                natal_virupas=natal_virupas,
+                mu_by_planet=mu_by_planet,
+                derived_lords=derived_lords,
+                bav_table=bav_table,
+            ))
     return epochs
+
+
+def _build_epoch_for_chunk(
+    engine: Any,
+    birth: BirthDetails,
+    rec: Dict[str, Any],
+    idx: int,
+    chunk_idx: int,
+    chunk_total: int,
+    chunk_start: _dt.datetime,
+    chunk_end: _dt.datetime,
+    include_aspects: bool,
+    natal_lagna: Dict[str, Any],
+    natal_lagna_sign_num: int,
+    natal_sign_by_planet: Dict[str, str],
+    natal_sign_num_by_planet: Dict[str, int],
+    natal_house_by_planet: Dict[str, int],
+    natal_positions: Dict[str, Any],
+    natal_navamsha_sign_by_planet: Dict[str, str],
+    natal_vargottama_by_planet: Dict[str, bool],
+    natal_virupas: Dict[str, float],
+    mu_by_planet: Dict[str, float],
+    derived_lords: Dict[str, str],
+    bav_table: Dict[str, Dict[str, int]],
+) -> EpochState:
+    """Build a single EpochState for one [chunk_start, chunk_end]
+    chunk of an SD. Transit positions are evaluated at the chunk
+    midpoint; chunk boundaries are guaranteed by the caller to NOT
+    contain any tracked-planet sign ingress, so midpoint sampling is
+    sound for the chunk."""
+    start = chunk_start
+    end = chunk_end
+    mid = start + (end - start) / 2
+    tr_positions_raw = engine.calculate_planetary_positions(
+        mid, birth.lat, birth.lon,
+    )
+    tr_positions: Dict[str, Any] = {
+        p: d for p, d in tr_positions_raw.items()
+        if p in _sb.PARASHARI_PLANETS
+    }
+    tr_sign_by_planet: Dict[str, str] = {
+        p: d["rashi"] for p, d in tr_positions.items()
+    }
+    tr_sign_num_by_planet: Dict[str, int] = {
+        p: int(d["sign_num"]) for p, d in tr_positions.items()
+    }
+    tr_retro_by_planet: Dict[str, bool] = {
+        p: bool(d.get("is_retrograde", False))
+        for p, d in tr_positions.items()
+    }
+    # AstroEngine populates is_combust per-planet on the snapshot
+    # (within classical solar orb, see _COMBUSTION_ORBS). Sun has
+    # is_combust=False by construction. Nodes have is_combust=False
+    # (no classical combustion).
+    tr_combust_by_planet: Dict[str, bool] = {
+        p: bool(d.get("is_combust", False))
+        for p, d in tr_positions.items()
+    }
+    # Graha Yuddha among the five true planets at this snapshot.
+    yuddha_by_planet = _detect_graha_yuddha(tr_positions)
+
+    planets_out: Dict[str, PlanetEpochState] = {}
+    # Longitudes for longitudinal aspect math.
+    tr_lon_by_planet: Dict[str, float] = {
+        p: float(d["longitude"]) for p, d in tr_positions.items()
+    }
+    natal_lon_by_planet: Dict[str, float] = {
+        p: float(d["longitude"]) for p, d in natal_positions.items()
+    }
+    for planet in tr_positions.keys():
+        tr_sign = tr_sign_by_planet[planet]
+        tr_sign_num = tr_sign_num_by_planet[planet]
+        tr_house = _whole_sign_house(
+            tr_sign_num, natal_lagna_sign_num,
+        )
+        rec_aspects: List[str] = []
+        on_natal: List[str] = []
+        rec_strengths: Dict[str, float] = {}
+        on_natal_strengths: Dict[str, float] = {}
+        if include_aspects:
+            rec_aspects = _aspects.aspects_receiving(
+                planet, tr_sign_num, tr_sign_num_by_planet,
+            )
+            rec_strengths = _aspects.aspect_strengths_receiving(
+                target_lon=tr_lon_by_planet[planet],
+                aspector_lons=tr_lon_by_planet,
+                skip_target=planet,
+            )
+            # Transit-on-natal: which transiting planets aspect
+            # *this* planet's natal sign? Computed against the
+            # current transit-position table for the *aspectors*,
+            # but the target sign is this planet's natal sign.
+            natal_sign_num = natal_sign_num_by_planet.get(planet)
+            if natal_sign_num is not None:
+                on_natal = _aspects.aspects_receiving(
+                    planet, natal_sign_num, tr_sign_num_by_planet,
+                )
+            natal_lon = natal_lon_by_planet.get(planet)
+            if natal_lon is not None:
+                on_natal_strengths = _aspects.aspect_strengths_receiving(
+                    target_lon=natal_lon,
+                    aspector_lons=tr_lon_by_planet,
+                    skip_target=planet,
+                )
+        yu = yuddha_by_planet.get(planet, {})
+        planets_out[planet] = PlanetEpochState(
+            transit_sign=tr_sign,
+            transit_house=tr_house,
+            natal_house=natal_house_by_planet.get(planet, 0),
+            shadbala_coefficient=mu_by_planet.get(planet, 0.0),
+            shadbala_virupas=natal_virupas.get(planet),
+            is_retrograde=tr_retro_by_planet[planet],
+            aspects_receiving=rec_aspects,
+            aspects_on_natal=on_natal,
+            aspect_strengths_receiving=rec_strengths,
+            aspect_strengths_on_natal=on_natal_strengths,
+            natal_sign=natal_sign_by_planet.get(planet, ""),
+            is_combust=tr_combust_by_planet.get(planet, False),
+            is_in_graha_yuddha=bool(yu),
+            graha_yuddha_opponent=yu.get("opponent", "") if yu else "",
+            graha_yuddha_lost=bool(yu.get("lost", False)) if yu else False,
+            navamsha_sign=natal_navamsha_sign_by_planet.get(planet, ""),
+            is_vargottama=natal_vargottama_by_planet.get(planet, False),
+        )
+
+    dashas = DashaStack(
+        maha=rec.get("lord") or "",
+        antar=rec.get("sub_lord") or "",
+        pratyantar=rec.get("prat_lord") or "",
+        sookshma=rec.get("sookshma_lord") or "",
+    )
+    # Multi-chunk SDs: include chunk_idx in the epoch_id so each chunk
+    # is uniquely identified. Single-chunk SDs preserve the legacy
+    # epoch_id format (no chunk suffix) for backwards compatibility.
+    chunk_suffix = f".c{chunk_idx}" if chunk_total > 1 else ""
+    epoch_id = (
+        f"{dashas.maha}-{dashas.antar}-{dashas.pratyantar}-"
+        f"{dashas.sookshma}@{start.date().isoformat()}#{idx}{chunk_suffix}"
+    )
+    return EpochState(
+        epoch_id=epoch_id,
+        start_time=start,
+        end_time=end,
+        dashas=dashas,
+        planets=planets_out,
+        natal_lagna_sign=natal_lagna["rashi"],
+        derived_lords=derived_lords,
+        ashtakavarga=bav_table,
+    )

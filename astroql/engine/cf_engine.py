@@ -81,33 +81,46 @@ def _collect_subsumed(active: List[FiredRule]) -> Set[str]:
 
 def _resolve_veto(
     surviving_vetoes: List[FiredRule],
-) -> Tuple[float, str]:
+) -> Tuple[float, str, List[str], str]:
     """Pick the final score when one or more vetoes survive pruning.
 
-    All positive  → +1.0 (protective yoga like Mahamrityunjaya)
-    All negative  → -1.0 (absolute denial like durmarana confluence)
-    Mixed         → rule-library inconsistency; raise so the author can
-                    add an explicit subsumption linking them.
+    Classical cancellation semantics (BPHS / Phaladeepika):
+      All positive  → +1.0   (protective yoga like Mahamrityunjaya)
+      All negative  → -1.0   (absolute denial like durmarana confluence)
+      Mixed         →  0.0   (cancellation: protective yoga neutralizes
+                              maraka — survival under severe hardship,
+                              not death and not full safety).
+
+    Returns `(score, veto_id, cancelled_ids, reason)`:
+      - `veto_id` is the firing veto's rule_id when a single sign won;
+        it is `""` when a mixed-sign cancellation occurred.
+      - `cancelled_ids` lists every conflicting-veto rule_id that
+        participated in cancellation (only populated for the mixed
+        case).
+      - `reason` is a human-readable explanation surfaced on the
+        execution trace; empty when no cancellation happened.
     """
-    signs = {
-        (1 if fr.rule.effective_base_cf > 0 else -1)
-        for fr in surviving_vetoes
-    }
-    if 1 in signs and -1 in signs:
-        pos = [fr.rule.rule_id for fr in surviving_vetoes
-               if fr.rule.effective_base_cf > 0]
-        neg = [fr.rule.rule_id for fr in surviving_vetoes
-               if fr.rule.effective_base_cf < 0]
-        raise CFEngineError(
-            f"Conflicting vetoes fired without mutual subsumption: "
-            f"positive={pos} negative={neg}. Add an explicit "
-            f"subsumes_rules link so one yoga-bhangs the other, or "
-            f"narrow one veto's antecedent."
+    pos = [fr for fr in surviving_vetoes
+           if fr.rule.effective_base_cf > 0]
+    neg = [fr for fr in surviving_vetoes
+           if fr.rule.effective_base_cf < 0]
+    if pos and neg:
+        cancelled_ids = sorted(
+            fr.rule.rule_id for fr in surviving_vetoes
         )
+        pos_ids = sorted(fr.rule.rule_id for fr in pos)
+        neg_ids = sorted(fr.rule.rule_id for fr in neg)
+        reason = (
+            "Classical cancellation: protective veto(s) "
+            f"{pos_ids} cancel maraka veto(s) {neg_ids}. "
+            "Final score = 0.0 (survival under severe hardship; "
+            "neither full safety nor absolute denial)."
+        )
+        return 0.0, "", cancelled_ids, reason
     # Single-sign: just pick the first. All same-sign vetoes are ±1.0
     # so any one represents the outcome.
     first = surviving_vetoes[0]
-    return first.rule.effective_base_cf, first.rule.rule_id
+    return first.rule.effective_base_cf, first.rule.rule_id, [], ""
 
 
 def _augment_modifier_indices(
@@ -182,11 +195,21 @@ def infer_cf(
 
     surviving_vetoes = [fr for fr in surviving if fr.rule.is_veto]
     if surviving_vetoes:
-        score, veto_id = _resolve_veto(surviving_vetoes)
-        trace.veto_fired = veto_id
+        score, veto_id, cancelled_ids, reason = _resolve_veto(
+            surviving_vetoes,
+        )
+        # `veto_fired` is only set when a single-sign veto won; for
+        # mixed-sign cancellation we leave it None and use the
+        # `veto_cancelled` / `veto_cancellation_reason` fields so
+        # downstream consumers (LLM critic, predictors) can clearly
+        # distinguish the three outcomes (positive win / negative win
+        # / cancellation).
+        trace.veto_fired = veto_id or None
+        trace.veto_cancelled = cancelled_ids
+        trace.veto_cancellation_reason = reason
         trace.final_score = score
         # Log the firing veto(s) in rules_fired so the critic sees
-        # what triggered the short-circuit.
+        # what triggered the short-circuit (or the cancellation).
         for fr in surviving_vetoes:
             trace.rules_fired.append(FiredRuleTrace(
                 rule_id=fr.rule.rule_id,

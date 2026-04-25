@@ -30,6 +30,44 @@ class PlanetEpochState:
     # Raw virupas retained for debugging / display; not used in CF math.
     shadbala_virupas: Optional[float] = None
 
+    # ── Longitudinal aspect strengths (Sphuta Drishti, BPHS) ────────
+    # `aspects_receiving` and `aspects_on_natal` are sign-based binary
+    # flags; the dicts below carry the per-aspector orb-graded
+    # strength in [0, 1]. A value of 1.0 = exact aspect (within ±1°);
+    # 0.0 = aspect not formed (orb beyond limit). These let DSL rules
+    # gate on aspect intensity (e.g. "Saturn aspect on natal Sun with
+    # strength > 0.7"). Keys are aspector planet names; values are
+    # floats. Missing planet ⇒ no aspect from that planet.
+    aspect_strengths_receiving: Dict[str, float] = field(default_factory=dict)
+    aspect_strengths_on_natal: Dict[str, float] = field(default_factory=dict)
+
+    # ── Avasthas (qualitative states that override Shadbala) ────────
+    # Asta (combustion): planet within solar combustion orb. Per
+    # classical: a combust planet loses beneficence regardless of
+    # Shadbala μ. Sun itself is never marked combust.
+    is_combust: bool = False
+    # Graha Yuddha: true planet within 1° longitude of another true
+    # planet. Sun/Moon/Rahu/Ketu are excluded from yuddha by classical
+    # convention. The "loser" carries the flag; rules can penalize.
+    is_in_graha_yuddha: bool = False
+    # Name of the opposing planet in graha yuddha (for trace/audit);
+    # empty when not in yuddha.
+    graha_yuddha_opponent: str = ""
+    # Whether this planet "lost" the yuddha (slower daily speed).
+    # When in_graha_yuddha=True and this is True, the planet is
+    # classically destroyed for the duration; when False, this is
+    # the winner. When not in yuddha, both flags are False.
+    graha_yuddha_lost: bool = False
+
+    # ── Navamsha (D-9) chart placement ──────────────────────────────
+    # Sidereal sign in the D-9 chart. Classical Parashari (BPHS) holds
+    # that a promise in the D-1 chart must be validated in the D-9 —
+    # e.g. a debilitated D-1 planet exalted in D-9 attains Neecha
+    # Bhanga (cancellation). Empty when emitter cannot derive D-9.
+    navamsha_sign: str = ""
+    # Vargottama: D-1 sign == D-9 sign. Strong dignity boost.
+    is_vargottama: bool = False
+
 
 @dataclass
 class DashaStack:

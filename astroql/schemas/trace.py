@@ -33,6 +33,16 @@ class ExecutionTrace:
     rules_fired: List[FiredRuleTrace] = field(default_factory=list)
     rules_subsumed: List[str] = field(default_factory=list)
     veto_fired: Optional[str] = None  # rule_id of triggering veto
+    # Classical cancellation: when a positive (protective) veto and a
+    # negative (denial) veto both fire and neither subsumes the other,
+    # they cancel to a 0.0 score (survival under severe hardship).
+    # When set, lists the rule_ids of *all* surviving conflicting
+    # vetoes that participated in the cancellation. `veto_fired` in
+    # that case is "" (no single veto won) and `final_score` is 0.0.
+    veto_cancelled: List[str] = field(default_factory=list)
+    # Human-readable explanation of why the engine cancelled vetoes;
+    # surfaced for the LLM critic and prediction reports.
+    veto_cancellation_reason: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -42,6 +52,8 @@ class ExecutionTrace:
             "rules_fired": [asdict(r) for r in self.rules_fired],
             "rules_subsumed": list(self.rules_subsumed),
             "veto_fired": self.veto_fired,
+            "veto_cancelled": list(self.veto_cancelled),
+            "veto_cancellation_reason": self.veto_cancellation_reason,
         }
 
     @classmethod
@@ -53,4 +65,6 @@ class ExecutionTrace:
             rules_fired=[FiredRuleTrace(**r) for r in d["rules_fired"]],
             rules_subsumed=list(d.get("rules_subsumed", [])),
             veto_fired=d.get("veto_fired"),
+            veto_cancelled=list(d.get("veto_cancelled", [])),
+            veto_cancellation_reason=d.get("veto_cancellation_reason", ""),
         )
