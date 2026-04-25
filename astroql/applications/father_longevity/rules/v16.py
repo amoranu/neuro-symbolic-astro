@@ -3,15 +3,16 @@ fields exposed by the engine v2 architectural overhaul:
   * `is_combust`               (Asta / solar combustion)
   * `is_in_graha_yuddha`       (planetary war)
   * `aspect_strengths_*`       (longitudinal Sphuta Drishti)
-  * `navamsha_sign` + `is_vargottama`   (D-9 dignity)
+  * `navamsha_sign` + `is_vargottama`   (D-9 dignity — surfaced on
+                                          state but no v16 rule
+                                          consumes it directly; see
+                                          'lessons learned' below)
   * mixed-sign veto cancellation in cf_engine
 
-v16 = v15 + 5 additive rules. None replace v15 rules; subsumption links
-are used where overlap is clean (the Saturn-strong-aspect rule subsumes
-the legacy binary form when its longitudinal strength is high). All
-new rules are written so they fire only when the new field carries
-distinguishing information — none would have been possible against
-v15's pre-overhaul EpochState.
+v16 = v15 + 4 additive rules (was 5; vargottama dropped — see below).
+None replace v15 rules; subsumption links are used where overlap is
+clean (the Saturn-strong-aspect rule subsumes the legacy binary form
+when its longitudinal strength is high).
 
 Rule additions:
 
@@ -22,39 +23,99 @@ Rule additions:
       adds a negative CF that re-imposes the maraka force the v15
       Jupiter-protection modifier would otherwise cancel.
 
-  N2. ninth_lord_vargottama_protection
-      Father bhava lord whose D-1 sign matches its D-9 sign attains
-      Vargottama dignity (BPHS divisional-chart promise). Stable
-      protective force that participates in MYCIN aggregation; not
-      a veto — it dampens malefic accumulation rather than absolute-
-      cancelling.
-
-  N3. saturn_strong_aspect_natal_sun
+  N2. saturn_strong_aspect_natal_sun
       Sphuta Drishti form of v15's saturn_aspects_natal_sun. Fires
       only when Saturn's longitudinal aspect on natal Sun is strong
       (≥ 0.7 — within ~3° of exact 7th/3rd/10th aspect points).
       Subsumes the v15 binary form so we don't double-count the
       same drishti.
 
-  N4. ad_lord_lost_graha_yuddha
+  N3. ad_lord_lost_graha_yuddha
       AD lord is engaged in Graha Yuddha as the loser (slower mover,
       classically destroyed for the period). Adds a focused negative
       CF when the engine flags this state.
 
-  V1. mahamrityunjaya_yoga_veto  (the FIRST veto in this rule library)
+  V1. mahamrityunjaya_yoga_protection  (high-weight non-veto)
       Jupiter exalted in dignity, not combust, with a strong (≥ 0.7)
       longitudinal aspect on natal Sun, AND in 5th/9th from natal
-      Sun. Rare classical full-protection yoga. Set is_veto=True with
-      base_cf=+1.0. With cf_engine v2's mixed-veto cancellation, this
-      can co-fire with maraka veto patterns and produce a 0.0 score
-      (severe hardship but survival) instead of crashing. v15 carries
-      no vetoes at all, so V1 is what activates the veto + cancellation
-      code path under real evaluation.
+      Sun. Rare classical full-protection yoga. base_cf=+0.85
+      (review #4: a +1.0 veto would absolutely override even an
+      overwhelming maraka stack — and at the truth-epoch of an actual
+      death, transient satisfaction of the protective conditions
+      would zero out the prediction. +0.85 is high enough to dampen
+      typical maraka accumulation but allows an overwhelming negative
+      stack to legitimately override). The cancellation path in
+      cf_engine remains exercised by unit tests independently.
+
+LESSONS LEARNED — DROPPED RULES
+================================
+
+  X1. ninth_lord_vargottama_protection  (DROPPED 2026-04-25)
+      Originally added as a chart-static positive rule (+0.20) when
+      the 9th lord's D-1 sign equals its D-9 sign. Per-chart audit
+      showed this is structurally incapable of helping any
+      prediction:
+
+        * Vargottama is chart-static — the rule fires on EVERY
+          sookshma epoch of a given chart with the same +0.20.
+        * The predictor picks epochs by DIFFERENTIAL CF; a constant
+          boost cancels across all candidates.
+        * On the verified set, exactly one chart (Will Smith) had
+          a vargottama 9L. Tiny non-zero differential (+0.013)
+          appeared due to MYCIN's nonlinearity at different existing-
+          accumulation levels — and that differential pushed the
+          prediction AWAY from truth.
+
+      Generalizable rule: chart-static signals (vargottama, exalted/
+      debilitated natal placement, dispositorship of stable lords)
+      must be MODIFIERS on transit-driven rules, not standalone
+      rules. They modulate the strength of a transit-driven signal
+      at the same epoch; they cannot stand alone in a per-epoch
+      pick-the-extreme predictor.
+
+      Reinstating vargottama as a modifier is left to v17+: it
+      requires either pre-computing a chart-wide flag on the
+      EpochState (like derived_lords) so DSL conditions can read it,
+      or extending the DSL to support dynamic-key indexing
+      (`planets[derived_lords.ninth_lord].is_vargottama`).
+
+PER-CHART AUDIT (v16, N=19 verified)
+====================================
+
+  v16 fires at NEITHER truth nor picked: 15/19 charts → no impact.
+  v16 fires at PICKED but not TRUTH:      2 charts (Mia Farrow,
+                                          Carla Bruni) → ad_lord_lost
+                                          _yuddha pulls predictions
+                                          AWAY from truth.
+  v16 fires at TRUTH only:                1 chart (Nixon, jupiter_
+                                          combust) → -0.052 differ-
+                                          ential, helped but not
+                                          enough to flip MD→AD.
+  v16 fires at picked when v15-binary-saturn would have been
+  stronger:                               1 chart (Jane Fonda) →
+                                          subsumption WEAKENED
+                                          picked, marginally pulled
+                                          prediction toward truth.
+
+  Net: aggregate metrics unchanged. The new fields don't carry
+  signal at the specific truth events in this dataset — the v16
+  rules cover astrological mechanisms that don't happen to coincide
+  with the verified deaths.
+
+WHAT WOULD ACTUALLY MOVE METRICS
+================================
+
+  v17+ should follow the v9–v15 playbook: pick a specific failing
+  chart (one of the 13 AD-misses), diagnose what classical pattern
+  truth has that picked doesn't using ANY field (new or existing),
+  write the targeted rule. Each prior version flipped 1–2 charts
+  via this workflow; v16 skipped it and went straight to "exercise
+  the new fields," producing instrumentation rather than accuracy.
 
 Conservative weights chosen to avoid disturbing v15's hit rates: each
 new rule contributes ≤0.25 in magnitude, well under the 0.45 ceiling
 of v15's primary maraka rules. Empirical re-tuning is left to the
-critic / regression sweeps.
+critic / per-chart analysis sweeps.
 """
 from __future__ import annotations
 
@@ -193,51 +254,7 @@ _R_JUPITER_COMBUST_DRAINS_PROTECTION = CFRuleSpec(
 )
 
 
-# ── N2: 9th lord Vargottama protective rule ───────────────────────
-
-def _ninth_lord_is_vargottama(ep: EpochState) -> bool:
-    """N2 fires_when: the 9th lord is Vargottama (D-1 sign == D-9
-    sign). Chart-static — fires for every epoch on charts that have
-    this configuration. Acts as a sustained dampener that participates
-    in MYCIN aggregation against accumulating maraka rules.
-    """
-    nl = _ninth_lord(ep)
-    if nl is None:
-        return False
-    p = ep.planets.get(nl)
-    if p is None:
-        return False
-    return p.is_vargottama
-
-
-_R_NINTH_LORD_VARGOTTAMA = CFRuleSpec(
-    rule=_r(
-        "parashari.father.ninth_lord_vargottama_protection.cf16",
-        base_cf=+0.20,
-        # Use Sun as primary so μ-modulation tracks the karaka, not
-        # the variable 9L planet (μ already varies with 9L's natal
-        # shadbala in the existing v13 modifiers).
-        primary_planet="Sun",
-        source="BPHS Ch. 5 (Varga-vichara): a planet Vargottama (D-1 "
-               "sign == D-9 sign) yields exalted-class results. Father "
-               "bhava lord in Vargottama provides chart-static "
-               "protection against maraka accumulation.",
-        provenance=Provenance(
-            author="human", confidence=0.45,
-            citations=[_BPHS_VARGOTTAMA_CITATION],
-        ),
-        # No modifiers: the would-be "9L is also strong" intensifier
-        # requires dynamic 9L lookup (resolve `derived_lords.ninth_lord`
-        # then index `planets.<name>.shadbala_coefficient`), which the
-        # DSL doesn't support without dynamic-path interpolation. Left
-        # for a future engine extension; the base +0.20 already
-        # captures the dignity signal.
-    ),
-    fires_when=_ninth_lord_is_vargottama,
-)
-
-
-# ── N3: Saturn strong longitudinal aspect on natal Sun ────────────
+# ── N2: Saturn strong longitudinal aspect on natal Sun ────────────
 
 def _saturn_strong_aspect_on_natal_sun(ep: EpochState) -> bool:
     """N3 fires_when: Saturn's longitudinal aspect strength on natal
@@ -297,10 +314,10 @@ _R_SATURN_STRONG_ASPECT_NATAL_SUN = CFRuleSpec(
 )
 
 
-# ── N4: AD lord lost in Graha Yuddha ──────────────────────────────
+# ── N3: AD lord lost in Graha Yuddha ──────────────────────────────
 
 def _ad_lord_lost_yuddha(ep: EpochState) -> bool:
-    """N4 fires_when: AD lord is in Graha Yuddha and lost (the slower
+    """N3 fires_when: AD lord is in Graha Yuddha and lost (the slower
     of the two). Classically destroyed for the period. Sun/Moon/Rahu/
     Ketu can never satisfy this (yuddha is between true planets only),
     so no extra gate needed — `is_in_graha_yuddha` will be False for
@@ -353,7 +370,7 @@ _R_AD_LORD_LOST_YUDDHA = CFRuleSpec(
 )
 
 
-# ── V1: Mahamrityunjaya protective veto ───────────────────────────
+# ── V1: Mahamrityunjaya protective rule (non-veto, +0.85) ─────────
 
 def _mahamrityunjaya_protective_yoga(ep: EpochState) -> bool:
     """V1 fires_when (strict, classical):
@@ -362,9 +379,11 @@ def _mahamrityunjaya_protective_yoga(ep: EpochState) -> bool:
         * Jupiter natally in 5th or 9th from natal Sun
         * Jupiter shadbala mu >= 0.7
 
-    Conjunctive gate. Rare on the verified set — designed to exercise
-    the veto + cancellation code path rather than to optimize accuracy
-    on this specific dataset.
+    Conjunctive gate. Rare on the verified set; when it fires it
+    contributes a substantial protective CF that an overwhelming
+    maraka stack can still legitimately override (review #4 — a
+    full +1.0 veto would blind the engine on truth-epochs where
+    these conditions transiently hold).
     """
     jup = ep.planets.get("Jupiter")
     sun = ep.planets.get("Sun")
@@ -383,16 +402,18 @@ def _mahamrityunjaya_protective_yoga(ep: EpochState) -> bool:
     return jup.natal_sign in (fifth_from_sun, ninth_from_sun)
 
 
-_R_MAHAMRITYUNJAYA_VETO = CFRuleSpec(
+_R_MAHAMRITYUNJAYA_PROTECTION = CFRuleSpec(
     rule=_r(
-        "parashari.father.mahamrityunjaya_yoga.veto.cf16",
-        base_cf=+1.0, primary_planet=None, is_veto=True,
+        "parashari.father.mahamrityunjaya_yoga.cf16",
+        base_cf=+0.85, primary_planet="Jupiter",
         source="Classical Mahamrityunjaya yoga: Jupiter strong, not "
                "combust, in 5th/9th from karaka, with exact-orb "
-               "drishti on the karaka. The first veto in this rule "
-               "library — exercises the cf_engine v2 mixed-veto "
-               "cancellation path when co-firing with future maraka "
-               "vetoes.",
+               "drishti on the karaka. Demoted from a +1.0 veto to a "
+               "high-weight (+0.85) non-veto rule — a hard veto would "
+               "blind the predictor on truth-epochs where these "
+               "conditions transiently hold; +0.85 dampens typical "
+               "maraka stacks but stays overrideable by overwhelming "
+               "negative evidence.",
         provenance=Provenance(
             author="human", confidence=0.45,
             citations=[_BPHS_VARGOTTAMA_CITATION],
@@ -410,8 +431,7 @@ _R_MAHAMRITYUNJAYA_VETO = CFRuleSpec(
 
 RULES_V16: List[CFRuleSpec] = list(RULES_V15) + [
     _R_JUPITER_COMBUST_DRAINS_PROTECTION,
-    _R_NINTH_LORD_VARGOTTAMA,
     _R_SATURN_STRONG_ASPECT_NATAL_SUN,
     _R_AD_LORD_LOST_YUDDHA,
-    _R_MAHAMRITYUNJAYA_VETO,
+    _R_MAHAMRITYUNJAYA_PROTECTION,
 ]

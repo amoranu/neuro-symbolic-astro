@@ -55,6 +55,14 @@ _PY_RULE_LIBS: List[Tuple[str, str]] = [
     ("astroql.applications.father_longevity.rules.v14", "RULES_V14"),
     ("astroql.applications.father_longevity.rules.v15", "RULES_V15"),
     ("astroql.applications.father_longevity.rules.v16", "RULES_V16"),
+    ("astroql.applications.father_longevity.rules.v17", "RULES_V17"),
+    ("astroql.applications.father_longevity.rules.v18", "RULES_V18"),
+    ("astroql.applications.father_longevity.rules.v19", "RULES_V19"),
+    ("astroql.applications.father_longevity.rules.v20", "RULES_V20"),
+    ("astroql.applications.father_longevity.rules.v21", "RULES_V21"),
+    ("astroql.applications.father_longevity.rules.v22", "RULES_V22"),
+    ("astroql.applications.father_longevity.rules.v23", "RULES_V23"),
+    ("astroql.applications.father_longevity.rules.v24", "RULES_V24"),
 ]
 
 
