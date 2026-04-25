@@ -114,29 +114,81 @@ def _print_delta(name: str, base: Dict[str, Any],
           f"Δ(AD+PD+SD)={deeper_delta:+2d}")
 
 
-def _verdict(base_held: Dict[str, Any],
-             cand_held: Dict[str, Any]) -> tuple[str, List[str]]:
-    """Apply the held-out acceptance criteria and return (verdict,
-    reasons). verdict is ACCEPT or REJECT."""
+def _check_cohort(label: str, base: Dict[str, Any],
+                  cand: Dict[str, Any], strict_md: bool,
+                  mean_tolerance: float) -> List[str]:
+    """Return list of regression reasons for one cohort. Empty list
+    means non-degraded."""
     reasons: List[str] = []
-    if cand_held["MD"] < base_held["MD"]:
+    if strict_md and cand["MD"] < base["MD"]:
         reasons.append(
-            f"Held-out Hit@MD decreased "
-            f"{base_held['MD']} → {cand_held['MD']}"
-        )
-    deeper_base = base_held["AD"] + base_held["PD"] + base_held["SD"]
-    deeper_cand = cand_held["AD"] + cand_held["PD"] + cand_held["SD"]
+            f"{label} Hit@MD decreased "
+            f"{base['MD']} → {cand['MD']}")
+    deeper_base = base["AD"] + base["PD"] + base["SD"]
+    deeper_cand = cand["AD"] + cand["PD"] + cand["SD"]
     if deeper_cand < deeper_base:
         reasons.append(
-            f"Held-out (AD+PD+SD) total decreased "
-            f"{deeper_base} → {deeper_cand}"
-        )
-    base_mean = max(base_held["mean"], 1.0)
-    if cand_held["mean"] > base_mean * 1.05:
+            f"{label} (AD+PD+SD) total decreased "
+            f"{deeper_base} → {deeper_cand}")
+    base_mean = max(base["mean"], 1.0)
+    if cand["mean"] > base_mean * (1 + mean_tolerance):
         reasons.append(
-            f"Held-out mean |days_off| increased >5% "
-            f"({base_held['mean']:.0f}d → {cand_held['mean']:.0f}d)"
-        )
+            f"{label} mean |days_off| increased >"
+            f"{int(mean_tolerance*100)}% "
+            f"({base['mean']:.0f}d → {cand['mean']:.0f}d)")
+    return reasons
+
+
+def _verdict(base_train: Dict[str, Any], cand_train: Dict[str, Any],
+             base_held: Dict[str, Any], cand_held: Dict[str, Any],
+             ) -> tuple[str, List[str]]:
+    """Apply acceptance criteria and return (verdict, reasons).
+
+    Held-out (HO) criteria — unbiased generalization, strict:
+      H1. HO Hit@MD non-decreasing.
+      H2. HO (AD+PD+SD) total non-decreasing.
+      H3. HO mean |days_off| within +5%.
+
+    Training criteria — the rule must not make training worse;
+    training has more headroom (ids 3-26 are tuned-against), so we
+    only reject on clear regressions:
+      T1. Train (AD+PD+SD) total non-decreasing.
+      T2. Train mean |days_off| within +5%.
+      (Train Hit@MD is not gated — small fluctuations from rule
+      reordering are expected.)
+
+    Improvement criterion — at least one side must improve. A rule
+    that is neutral on both is noise and rejected.
+      I1. (Train deeper hits OR HO deeper hits) strictly increase
+          OR mean (Train OR HO) strictly decreases by >1%.
+
+    All HO + Train + Improvement checks must pass for ACCEPT.
+    """
+    reasons: List[str] = []
+
+    reasons += _check_cohort("HO", base_held, cand_held,
+                              strict_md=True, mean_tolerance=0.05)
+    reasons += _check_cohort("Train", base_train, cand_train,
+                              strict_md=False, mean_tolerance=0.05)
+
+    deeper_base_train = (base_train["AD"] + base_train["PD"]
+                          + base_train["SD"])
+    deeper_cand_train = (cand_train["AD"] + cand_train["PD"]
+                          + cand_train["SD"])
+    deeper_base_held = base_held["AD"] + base_held["PD"] + base_held["SD"]
+    deeper_cand_held = cand_held["AD"] + cand_held["PD"] + cand_held["SD"]
+
+    improved = (
+        deeper_cand_train > deeper_base_train
+        or deeper_cand_held > deeper_base_held
+        or cand_train["mean"] < base_train["mean"] * 0.99
+        or cand_held["mean"] < base_held["mean"] * 0.99
+    )
+    if not improved and not reasons:
+        reasons.append(
+            "Neither cohort improved (rule is noise — non-decreasing "
+            "but adds no signal)")
+
     return ("ACCEPT" if not reasons else "REJECT", reasons)
 
 
@@ -218,15 +270,19 @@ def main() -> int:
     _print_delta("held",  base_held_s,  cand_held_s)
     print()
 
-    verdict, reasons = _verdict(base_held_s, cand_held_s)
+    verdict, reasons = _verdict(base_train_s, cand_train_s,
+                                 base_held_s, cand_held_s)
     print(f"VERDICT: {verdict}")
     if reasons:
         for r in reasons:
             print(f"  - {r}")
     else:
-        print("  - Held-out Hit@MD non-decreasing.")
-        print("  - Held-out (AD+PD+SD) total non-decreasing.")
-        print("  - Held-out mean |days_off| within +5%.")
+        print("  - HO Hit@MD non-decreasing.")
+        print("  - HO (AD+PD+SD) total non-decreasing.")
+        print("  - HO mean within +5%.")
+        print("  - Train (AD+PD+SD) total non-decreasing.")
+        print("  - Train mean within +5%.")
+        print("  - At least one cohort improved.")
 
     return 0 if verdict == "ACCEPT" else 1
 

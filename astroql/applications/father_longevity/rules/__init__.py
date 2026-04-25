@@ -1,16 +1,16 @@
 """Father longevity rule sets — versioned for ablation testing.
 
-Current canonical ruleset is **v15**. v16 through v28 are retained
-in ALL_VERSIONS for ablation/historical study only — they do not
-generalize to held-out data; see "Held-out validation finding"
-below.
+Current canonical ruleset is **v31** (v15 baseline + sphuta-aspect
+refinement). v16 through v28 are retained in ALL_VERSIONS for
+ablation/historical study only — they do not generalize to held-out
+data; see "Held-out validation finding" below.
 
 Version summary:
   v12 — Sun-karaka baseline (BPHS Ch. 41 + classical maraka theory)
   v13 — adds 9th/8th lord transit affliction family
   v14 — adds W-2 derived-lagna helpers + W-4 protective-PAD modifier
   v15 — adds derived-F-lord AD rule + standalone PD = F-loss-lord rule
-        ← CANONICAL (best held-out generalization)
+        ← previous canonical (honest baseline)
   v16 — engine v2 fields: combustion, graha yuddha, Sphuta Drishti
         aspect strengths, Mahamrityunjaya non-veto. Cost held-out
         AD 11→10 and held-out PD 4→2.
@@ -19,6 +19,11 @@ Version summary:
         only (no held-out check). Held-out 20-subject test (added
         2026-04-26) showed every one of these rules contributes ZERO
         held-out improvement.
+  v29–v30 — REJECTED candidates under the new HO+Train methodology
+        (broad transit-position rules that fired too often at non-
+        truth epochs and regressed training).
+  v31 — sphuta-aspect refinement of v15's binary aspect rules.
+        ACCEPTED under HO+Train methodology. ← CANONICAL.
 
 Held-out validation finding (2026-04-26)
 ========================================
@@ -89,11 +94,24 @@ from .v25 import RULES_V25  # noqa: F401 — ablation only
 from .v26 import RULES_V26  # noqa: F401 — ablation only
 from .v27 import RULES_V27  # noqa: F401 — ablation only
 from .v28 import RULES_V28  # noqa: F401 — ablation only
+from .v29 import RULES_V29  # noqa: F401 — REJECTED (HO+train methodology)
+from .v30 import RULES_V30  # noqa: F401 — REJECTED (HO+train methodology)
+from .v31 import RULES_V31  # noqa: F401 — candidate under HO+train validation
 
-# Current canonical ruleset — v15 is the honest generalization point.
-# See the module docstring for the held-out validation finding that
-# led to this revert from v28.
-RULES = RULES_V15
+# Current canonical ruleset.
+#
+# v15 was the honest baseline (see module docstring for the held-out
+# finding that led to the revert from v28).
+#
+# v31 = v15 + sphuta-aspect refinement of binary v15 aspect rules
+# (`malefic_AD_with_sphuta_aspect_on_natal_sun.cf31`). Accepts under
+# the HO+Train methodology:
+#   Train: +1 AD (6→7), mean -15d
+#   HO:    no hit changes, mean -3d, median -26d (faster predictions)
+# v29 (broad ashtama-from-lagna) and v30 (maraka-from-Sun gate) were
+# REJECTED before v31 was found — see those modules for design notes
+# and rejection reasons.
+RULES = RULES_V31
 
 ALL_VERSIONS = {
     "v12": RULES_V12,
@@ -113,6 +131,9 @@ ALL_VERSIONS = {
     "v26": RULES_V26,
     "v27": RULES_V27,
     "v28": RULES_V28,
+    "v29": RULES_V29,
+    "v30": RULES_V30,
+    "v31": RULES_V31,
 }
 
 __all__ = ["RULES", "ALL_VERSIONS",
@@ -121,4 +142,5 @@ __all__ = ["RULES", "ALL_VERSIONS",
            "RULES_V18", "RULES_V19", "RULES_V20",
            "RULES_V21", "RULES_V22", "RULES_V23",
            "RULES_V24", "RULES_V25", "RULES_V26",
-           "RULES_V27", "RULES_V28"]
+           "RULES_V27", "RULES_V28", "RULES_V29",
+           "RULES_V30", "RULES_V31"]
