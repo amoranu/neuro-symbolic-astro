@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE / agent
+.vscode/
+.idea/
+.claude/
+.agent/
+.aider*
+.axon/
+.mcp.json
+
+# Logs / scratch
+*.log
+err.txt
+out.txt
+/tmp/
+
+# pytest
+.pytest_cache/
+.coverage
+
+# Optional install artifacts
+*.egg
