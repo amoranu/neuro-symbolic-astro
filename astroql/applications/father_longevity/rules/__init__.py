@@ -42,6 +42,11 @@ Version summary:
           Train: +1 AD, +1 PD, -11d mean, -34d median
           HO:    same hits, +1d mean, -15d median
         ACCEPTED. ← CANONICAL.
+  v40 — multi-malefic in natal 9h transit. REJECTED (zero firings
+        across the dataset; configuration too rare for 3-year
+        windows).
+  v41 — AD-lord transits dusthana from natal Sun. REJECTED (Train
+        AD 8→7 although HO improved -6d mean).
 
 Held-out validation finding (2026-04-26)
 ========================================
@@ -123,6 +128,8 @@ from .v36 import RULES_V36  # noqa: F401 — REJECTED (HO+train methodology)
 from .v37 import RULES_V37
 from .v38 import RULES_V38
 from .v39 import RULES_V39
+from .v40 import RULES_V40  # noqa: F401 — REJECTED (HO+train methodology)
+from .v41 import RULES_V41  # noqa: F401 — candidate under HO+train validation
 
 # Current canonical ruleset.
 #
@@ -169,6 +176,8 @@ ALL_VERSIONS = {
     "v37": RULES_V37,
     "v38": RULES_V38,
     "v39": RULES_V39,
+    "v40": RULES_V40,
+    "v41": RULES_V41,
 }
 
 __all__ = ["RULES", "ALL_VERSIONS",
@@ -181,4 +190,4 @@ __all__ = ["RULES", "ALL_VERSIONS",
            "RULES_V30", "RULES_V31", "RULES_V32",
            "RULES_V33", "RULES_V34", "RULES_V35",
            "RULES_V36", "RULES_V37", "RULES_V38",
-           "RULES_V39"]
+           "RULES_V39", "RULES_V40", "RULES_V41"]
