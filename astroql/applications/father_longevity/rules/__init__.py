@@ -34,6 +34,7 @@ from .v21 import RULES_V21
 from .v22 import RULES_V22
 from .v23 import RULES_V23  # noqa: F401 — preserved for ablation
 from .v24 import RULES_V24
+from .v25 import RULES_V25
 
 # Current canonical ruleset.
 # v20 attempted but did not ship: Kelly's AD-gap was 0.006, too narrow
@@ -53,7 +54,11 @@ from .v24 import RULES_V24
 # (multi-role PD or similar), the rule is hostile to existing
 # wins. Eastwood gap (0.335) was too large to flip with one rule
 # anyway. Skipped v23 for canonical; preserved for ablation.
-RULES = RULES_V24
+# v25 = v24 + sva-pratyantara (PD=MD) F-loss-lord rule targeting
+# Douglas (Lib lagna; truth Jup-Mar-Jup-Sat where MD=PD=Jup=F7L,
+# AD=Mar=double-lagna-maraka, SD=Sat=F8L). Also fires at Penn truth
+# Sat-Moo-Sat-Sat but Penn picked has the same dasha stack — neutral.
+RULES = RULES_V25
 
 ALL_VERSIONS = {
     "v12": RULES_V12,
@@ -69,6 +74,7 @@ ALL_VERSIONS = {
     "v22": RULES_V22,
     "v23": RULES_V23,
     "v24": RULES_V24,
+    "v25": RULES_V25,
 }
 
 __all__ = ["RULES", "ALL_VERSIONS",
@@ -76,4 +82,4 @@ __all__ = ["RULES", "ALL_VERSIONS",
            "RULES_V15", "RULES_V16", "RULES_V17",
            "RULES_V18", "RULES_V19", "RULES_V20",
            "RULES_V21", "RULES_V22", "RULES_V23",
-           "RULES_V24"]
+           "RULES_V24", "RULES_V25"]
