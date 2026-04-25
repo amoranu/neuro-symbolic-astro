@@ -1,9 +1,10 @@
 """Father longevity rule sets — versioned for ablation testing.
 
-Current canonical ruleset is **v31** (v15 baseline + sphuta-aspect
-refinement). v16 through v28 are retained in ALL_VERSIONS for
-ablation/historical study only — they do not generalize to held-out
-data; see "Held-out validation finding" below.
+Current canonical ruleset is **v37** (v15 baseline + two sphuta-
+aspect refinements: v31 at 5° orb, v37 at 3° orb). v16 through v28
+are retained in ALL_VERSIONS for ablation/historical study only —
+they do not generalize to held-out data; see "Held-out validation
+finding" below.
 
 Version summary:
   v12 — Sun-karaka baseline (BPHS Ch. 41 + classical maraka theory)
@@ -22,8 +23,16 @@ Version summary:
   v29–v30 — REJECTED candidates under the new HO+Train methodology
         (broad transit-position rules that fired too often at non-
         truth epochs and regressed training).
-  v31 — sphuta-aspect refinement of v15's binary aspect rules.
-        ACCEPTED under HO+Train methodology. ← CANONICAL.
+  v31 — sphuta-aspect refinement of v15's binary aspect rules at 5°
+        orb. ACCEPTED.
+  v32–v36 — additional candidates, each REJECTED:
+        v32 PD-level sphuta — train mean drift +5.7%
+        v33 9L-target sphuta — train AD -1
+        v34 combust+F-role AD — too narrow, no signal
+        v35 graha-yuddha-lost AD — HO regression -3 deeper hits
+        v36 9L-as-aspector — HO PD -1
+  v37 — inner-orb (3°) refinement of v31, stacking on top.
+        ACCEPTED. ← CANONICAL.
 
 Held-out validation finding (2026-04-26)
 ========================================
@@ -96,7 +105,13 @@ from .v27 import RULES_V27  # noqa: F401 — ablation only
 from .v28 import RULES_V28  # noqa: F401 — ablation only
 from .v29 import RULES_V29  # noqa: F401 — REJECTED (HO+train methodology)
 from .v30 import RULES_V30  # noqa: F401 — REJECTED (HO+train methodology)
-from .v31 import RULES_V31  # noqa: F401 — candidate under HO+train validation
+from .v31 import RULES_V31
+from .v32 import RULES_V32  # noqa: F401 — REJECTED (HO+train methodology)
+from .v33 import RULES_V33  # noqa: F401 — REJECTED (HO+train methodology)
+from .v34 import RULES_V34  # noqa: F401 — REJECTED (HO+train methodology)
+from .v35 import RULES_V35  # noqa: F401 — REJECTED (HO+train methodology)
+from .v36 import RULES_V36  # noqa: F401 — REJECTED (HO+train methodology)
+from .v37 import RULES_V37
 
 # Current canonical ruleset.
 #
@@ -104,14 +119,13 @@ from .v31 import RULES_V31  # noqa: F401 — candidate under HO+train validation
 # finding that led to the revert from v28).
 #
 # v31 = v15 + sphuta-aspect refinement of binary v15 aspect rules
-# (`malefic_AD_with_sphuta_aspect_on_natal_sun.cf31`). Accepts under
-# the HO+Train methodology:
-#   Train: +1 AD (6→7), mean -15d
-#   HO:    no hit changes, mean -3d, median -26d (faster predictions)
-# v29 (broad ashtama-from-lagna) and v30 (maraka-from-Sun gate) were
-# REJECTED before v31 was found — see those modules for design notes
-# and rejection reasons.
-RULES = RULES_V31
+# (`malefic_AD_with_sphuta_aspect_on_natal_sun.cf31`, orb >= 0.5).
+# v37 = v31 + tighter-orb (>= 0.7 = ~3°) variant stacking on top.
+# v32-v36 each rejected (see those modules for rejection reasons).
+# v37 acceptance vs v15 cumulative:
+#   Train: +1 AD (6→7), mean 417d → 401d (-15d)
+#   HO:    no hit changes, mean 347d → 333d (-14d)
+RULES = RULES_V37
 
 ALL_VERSIONS = {
     "v12": RULES_V12,
@@ -134,6 +148,12 @@ ALL_VERSIONS = {
     "v29": RULES_V29,
     "v30": RULES_V30,
     "v31": RULES_V31,
+    "v32": RULES_V32,
+    "v33": RULES_V33,
+    "v34": RULES_V34,
+    "v35": RULES_V35,
+    "v36": RULES_V36,
+    "v37": RULES_V37,
 }
 
 __all__ = ["RULES", "ALL_VERSIONS",
@@ -143,4 +163,6 @@ __all__ = ["RULES", "ALL_VERSIONS",
            "RULES_V21", "RULES_V22", "RULES_V23",
            "RULES_V24", "RULES_V25", "RULES_V26",
            "RULES_V27", "RULES_V28", "RULES_V29",
-           "RULES_V30", "RULES_V31"]
+           "RULES_V30", "RULES_V31", "RULES_V32",
+           "RULES_V33", "RULES_V34", "RULES_V35",
+           "RULES_V36", "RULES_V37"]
