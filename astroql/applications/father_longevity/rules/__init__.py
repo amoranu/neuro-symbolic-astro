@@ -36,6 +36,7 @@ from .v23 import RULES_V23  # noqa: F401 — preserved for ablation
 from .v24 import RULES_V24
 from .v25 import RULES_V25
 from .v26 import RULES_V26
+from .v27 import RULES_V27
 
 # Current canonical ruleset.
 # v20 attempted but did not ship: Kelly's AD-gap was 0.006, too narrow
@@ -61,8 +62,10 @@ from .v26 import RULES_V26
 # Penn picked has same dasha stack so neutral.
 # v26 = v25 + 4-level distinct-role maraka stack rule (MD=9L, AD=Sun,
 # PD=double-lagna-maraka, SD=F8L) targeting Kelly (Lib lagna; truth
-# Mer-Sun-Mar-Sat).
-RULES = RULES_V26
+# Mer-Sun-Mar-Sat). Flipped Kelly MD-only → SD-match (-2d).
+# v27 = v26 + sva-sookshma F2L rule (MD=lagna_lord, AD=F8L, PD=F2L,
+# SD=PD-lord) targeting Ferguson (Lib lagna; truth Ven-Sat-Moo-Moo).
+RULES = RULES_V27
 
 ALL_VERSIONS = {
     "v12": RULES_V12,
@@ -80,6 +83,7 @@ ALL_VERSIONS = {
     "v24": RULES_V24,
     "v25": RULES_V25,
     "v26": RULES_V26,
+    "v27": RULES_V27,
 }
 
 __all__ = ["RULES", "ALL_VERSIONS",
@@ -87,4 +91,5 @@ __all__ = ["RULES", "ALL_VERSIONS",
            "RULES_V15", "RULES_V16", "RULES_V17",
            "RULES_V18", "RULES_V19", "RULES_V20",
            "RULES_V21", "RULES_V22", "RULES_V23",
-           "RULES_V24", "RULES_V25", "RULES_V26"]
+           "RULES_V24", "RULES_V25", "RULES_V26",
+           "RULES_V27"]
