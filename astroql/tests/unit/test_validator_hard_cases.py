@@ -307,6 +307,31 @@ def test_yoga_bhanga_non_veto_subsumes_veto_rejected():
         validate_yoga_bhanga([a, b])
 
 
+# ── Group F: dynamic primary_planet tokens ──────────────────────────
+
+def test_primary_planet_dynamic_ad_lord_token_accepted(schema):
+    """Loader must accept <ad_lord> as a valid primary_planet — it's
+    resolved per-epoch by cf_engine, not at load time."""
+    raw = _base(primary_planet="<ad_lord>")
+    rule = _validate_rule(raw, schema)
+    assert rule.primary_planet == "<ad_lord>"
+
+
+def test_primary_planet_all_dasha_tokens_accepted(schema):
+    for token in ("<md_lord>", "<ad_lord>", "<pd_lord>", "<sd_lord>"):
+        rule = _validate_rule(_base(primary_planet=token), schema)
+        assert rule.primary_planet == token
+
+
+def test_primary_planet_unknown_token_rejected(schema):
+    """Must look like one of the recognized dynamic tokens or be a
+    Parashari planet name. A typo like '<karaka>' or 'AD_lord' is
+    not a recognized form."""
+    for bad in ("<karaka>", "AD_lord", "<atmakaraka>", "<>", "<lord>"):
+        with pytest.raises(RuleLoadError, match="must be one of"):
+            _validate_rule(_base(primary_planet=bad), schema)
+
+
 # ── Group E: Direct DSL validator (no rule wrapping) ────────────────
 
 def test_validate_dsl_condition_combinator_recursion_caps_at_typeerror():

@@ -46,23 +46,107 @@ def _is_cf_relevant(rule: Rule) -> bool:
     return rule.base_cf is not None or rule.is_veto
 
 
+# Dynamic primary-planet tokens. A rule may set
+# `primary_planet="<ad_lord>"` (etc.) instead of a static planet name;
+# the engine resolves the token to the actual planet at fire time
+# from the EpochState's dasha stack. This lets a single rule depend
+# on the strength of WHATEVER planet plays a given role on the chart,
+# rather than committing to one planet at authoring time.
+_DASHA_TOKEN_TO_FIELD = {
+    "<md_lord>": "maha",
+    "<ad_lord>": "antar",
+    "<pd_lord>": "pratyantar",
+    "<sd_lord>": "sookshma",
+}
+
+
+def is_dynamic_primary_planet(name: Optional[str]) -> bool:
+    """True iff `name` is one of the recognized dynamic tokens.
+    Useful for the loader and tests; engine-internal logic uses
+    `_resolve_primary_planet` directly."""
+    return name in _DASHA_TOKEN_TO_FIELD
+
+
+def _resolve_primary_planet(
+    rule: Rule, epoch_state: Optional[Any],
+) -> Optional[str]:
+    """Resolve the rule's primary_planet to an actual planet name.
+
+    Static names ("Sun", "Saturn", ...) pass through unchanged.
+    Dynamic tokens ("<ad_lord>", ...) are resolved against the
+    epoch's dasha stack. None passes through (vetoes don't use μ).
+
+    Raises CFEngineError if a dynamic token is used but
+    `epoch_state` was not provided, or if the resolved dasha lord
+    is empty (chart with incomplete dasha info).
+    """
+    name = rule.primary_planet
+    if name is None or not is_dynamic_primary_planet(name):
+        return name
+    if epoch_state is None:
+        raise CFEngineError(
+            f"rule {rule.rule_id}: primary_planet={name!r} is a "
+            f"dynamic token but infer_cf was called without "
+            f"epoch_state. Pass epoch_state=ep so dynamic tokens "
+            f"can resolve."
+        )
+    field = _DASHA_TOKEN_TO_FIELD[name]
+    resolved = getattr(epoch_state.dashas, field, "") or ""
+    if not resolved:
+        raise CFEngineError(
+            f"rule {rule.rule_id}: dynamic primary_planet={name!r} "
+            f"resolved to empty (dashas.{field} is unset on epoch "
+            f"{getattr(epoch_state, 'epoch_id', '?')!r})."
+        )
+    return resolved
+
+
 def _planet_mu(
     rule: Rule, mu_by_planet: Dict[str, float],
+    epoch_state: Optional[Any] = None,
 ) -> float:
     """Look up μ for the rule's primary planet. Non-veto CF-native
     rules are loader-guaranteed to declare primary_planet, so the
     lookup should always succeed. Missing planet raises.
+
+    Supports both static names ("Sun", "Saturn", ...) and dynamic
+    tokens ("<ad_lord>", "<md_lord>", "<pd_lord>", "<sd_lord>")
+    that resolve against `epoch_state.dashas` at fire time. The
+    dynamic form lets rules whose effect depends on the AD/PD/SD
+    LORD's strength generalize across charts without hardcoding a
+    single planet.
+
+    The returned μ is defensively clamped to [0, 1]. The cf_math
+    invariant requires `adj_base * mu * damp` to stay strictly inside
+    (-1, 1); since `adj_base ∈ (-1, 1)` (loader + post-combine clip)
+    and `damp ∈ [0, 1]`, the only way to break the invariant is to
+    receive a μ > 1 here. shadbala.classical_mu already clamps to
+    ≤ 1.0, but we re-clamp at this boundary so a future shadbala-
+    source change (or a caller passing raw virupas-derived floats)
+    cannot silently corrupt downstream MYCIN aggregation via
+    swallowed CFInvariantError.
     """
-    planet = rule.primary_planet
+    planet = _resolve_primary_planet(rule, epoch_state)
     if planet is None:
         # Only vetoes are allowed here (short-circuit; μ is irrelevant).
         return 1.0
     if planet not in mu_by_planet:
         raise CFEngineError(
             f"rule {rule.rule_id} references primary_planet="
-            f"{planet!r} but μ table has keys {sorted(mu_by_planet)}"
+            f"{rule.primary_planet!r} (resolved to {planet!r}) but "
+            f"μ table has keys {sorted(mu_by_planet)}"
         )
-    return mu_by_planet[planet]
+    mu = mu_by_planet[planet]
+    if mu < 0.0 or mu > 1.0:
+        # Out-of-contract input — clamp and surface a CFEngineError so
+        # the caller sees the contract violation. Clamping silently
+        # would mask shadbala-source bugs (review #1).
+        raise CFEngineError(
+            f"rule {rule.rule_id}: μ for {planet!r} = {mu} is outside "
+            f"the contract interval [0, 1]. Shadbala normalization "
+            f"upstream is broken; do not pass raw virupas here."
+        )
+    return mu
 
 
 def _collect_subsumed(active: List[FiredRule]) -> Set[str]:
@@ -242,7 +326,7 @@ def infer_cf(
                 modifier_explanations.append(
                     mod.explanation or f"modifier[{idx}]"
                 )
-        mu = _planet_mu(fr.rule, mu_by_planet)
+        mu = _planet_mu(fr.rule, mu_by_planet, epoch_state=epoch_state)
         # Optional overlap-fraction dampening (default 1.0 = no-op).
         damp = overlap_dampening.get(fr.rule.rule_id, 1.0)
         if damp < 0.0 or damp > 1.0:

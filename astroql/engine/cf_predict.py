@@ -24,6 +24,25 @@ from ..schemas.rules import FiredRule, Rule
 from ..schemas.trace import ExecutionTrace
 from . import cf_engine, dsl_evaluator, epoch_emitter
 from . import shadbala as _sb
+from .dsl_evaluator import DSLEvalError
+
+
+# Exceptions a predicate may legitimately raise to signal "rule does
+# not apply to this epoch" — surface anything else so it crashes
+# loudly during development (review #2: bare `except Exception` was
+# masking real authoring bugs).
+#   DSLEvalError  — DSL path doesn't resolve (e.g. aspect_strengths_*
+#                   key missing because the aspect isn't formed).
+#   AttributeError — Python lambda accessed a missing attribute on a
+#                   chart with incomplete state.
+#   KeyError      — Python lambda subscripted a missing planet/dasha.
+#   TypeError     — comparison against None / mismatched types when
+#                   a chart is missing data.
+# Everything else (NameError, ImportError, CFInvariantError, ...) is
+# a real bug and must propagate.
+_PREDICATE_NON_APPLICABLE_EXC = (
+    DSLEvalError, AttributeError, KeyError, TypeError,
+)
 
 
 RulePredicate = Callable[[EpochState], bool]
@@ -152,16 +171,18 @@ def predict_extreme_epoch(
             try:
                 if not _resolve_predicate(spec.fires_when, ep):
                     continue
-            except Exception:
-                # A predicate that errors on a particular epoch is a
-                # rule-authoring bug, not a per-chart abort. Skip.
+            except _PREDICATE_NON_APPLICABLE_EXC:
+                # Predicate signaled "rule doesn't apply to this epoch"
+                # via one of the recognized non-applicable exceptions.
+                # Other errors (NameError, CFInvariantError, ...) are
+                # real bugs and propagate by design.
                 continue
             mod_idxs: List[int] = []
             for idx, mp in enumerate(spec.modifier_predicates):
                 try:
                     if _resolve_predicate(mp, ep):
                         mod_idxs.append(idx)
-                except Exception:
+                except _PREDICATE_NON_APPLICABLE_EXC:
                     continue
             fired.append(FiredRule(
                 rule=spec.rule,

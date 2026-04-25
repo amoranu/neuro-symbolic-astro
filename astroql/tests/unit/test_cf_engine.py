@@ -221,3 +221,122 @@ def test_mu_zero_zeros_rule():
     assert score == 0.0
     # Skipped from trace — it produced zero signal.
     assert trace.rules_fired == []
+
+
+def test_mu_above_one_raises_clearly():
+    # Defensive: cf_engine must surface out-of-contract μ as a
+    # CFEngineError, not let it slip into cf_math and trigger a
+    # CFInvariantError that gets swallowed elsewhere (review #1).
+    r = _rule("r", base_cf=-0.5, primary_planet="Sun")
+    with pytest.raises(CFEngineError, match="contract interval"):
+        infer_cf([_fire(r)], {"Sun": 1.5}, "longevity")
+
+
+def test_mu_negative_raises_clearly():
+    r = _rule("r", base_cf=-0.5, primary_planet="Sun")
+    with pytest.raises(CFEngineError, match="contract interval"):
+        infer_cf([_fire(r)], {"Sun": -0.1}, "longevity")
+
+
+def test_mu_at_unit_boundary_accepted():
+    # μ = 1.0 exactly is on-contract (shadbala max); must not raise.
+    r = _rule("r", base_cf=-0.5, primary_planet="Sun")
+    score, _ = infer_cf([_fire(r)], {"Sun": 1.0}, "longevity")
+    assert score == pytest.approx(-0.5)
+
+
+# ── Dynamic primary_planet (resolved per epoch from dasha stack) ───
+
+def _stub_epoch_with_dashas(maha="Sun", antar="Mars",
+                            pratyantar="Venus", sookshma="Saturn"):
+    """Build a minimal EpochState with the given dasha lords for
+    dynamic-primary-planet resolution tests."""
+    import datetime as _dt
+    from astroql.schemas.epoch_state import (
+        DashaStack, EpochState, PlanetEpochState,
+    )
+    return EpochState(
+        epoch_id="dyn-e1",
+        start_time=_dt.datetime(2020, 1, 1),
+        end_time=_dt.datetime(2020, 1, 2),
+        dashas=DashaStack(maha=maha, antar=antar,
+                          pratyantar=pratyantar, sookshma=sookshma),
+        planets={"Sun": PlanetEpochState(
+            transit_sign="Aries", transit_house=1, natal_house=1,
+            shadbala_coefficient=0.8, is_retrograde=False,
+        )},
+    )
+
+
+def test_dynamic_ad_lord_token_resolves_to_antar():
+    """`primary_planet='<ad_lord>'` resolves to ep.dashas.antar at
+    fire time. Rule's μ is therefore the AD lord's μ."""
+    r = _rule("r", base_cf=-0.5, primary_planet="<ad_lord>")
+    ep = _stub_epoch_with_dashas(antar="Mars")
+    # μ_Mars=0.6 → final cf = -0.5 * 0.6 = -0.3
+    score, _ = infer_cf(
+        [_fire(r)], _MU, "longevity", epoch_state=ep,
+    )
+    assert score == pytest.approx(-0.3)
+
+
+def test_dynamic_md_lord_token_resolves_to_maha():
+    r = _rule("r", base_cf=-0.5, primary_planet="<md_lord>")
+    ep = _stub_epoch_with_dashas(maha="Saturn")
+    # μ_Saturn=0.3 → final cf = -0.5 * 0.3 = -0.15
+    score, _ = infer_cf(
+        [_fire(r)], _MU, "longevity", epoch_state=ep,
+    )
+    assert score == pytest.approx(-0.15)
+
+
+def test_dynamic_pd_lord_token_resolves_to_pratyantar():
+    r = _rule("r", base_cf=-0.5, primary_planet="<pd_lord>")
+    ep = _stub_epoch_with_dashas(pratyantar="Jupiter")
+    # μ_Jupiter=0.9 → final cf = -0.5 * 0.9 = -0.45
+    score, _ = infer_cf(
+        [_fire(r)], _MU, "longevity", epoch_state=ep,
+    )
+    assert score == pytest.approx(-0.45)
+
+
+def test_dynamic_sd_lord_token_resolves_to_sookshma():
+    r = _rule("r", base_cf=-0.5, primary_planet="<sd_lord>")
+    ep = _stub_epoch_with_dashas(sookshma="Mercury")
+    # μ_Mercury=0.7 → final cf = -0.5 * 0.7 = -0.35
+    score, _ = infer_cf(
+        [_fire(r)], _MU, "longevity", epoch_state=ep,
+    )
+    assert score == pytest.approx(-0.35)
+
+
+def test_dynamic_token_without_epoch_state_raises():
+    """Dynamic tokens require epoch_state to resolve. If a caller
+    forgets to pass it, fail loudly with a clear error."""
+    r = _rule("r", base_cf=-0.5, primary_planet="<ad_lord>")
+    with pytest.raises(CFEngineError, match="dynamic token"):
+        infer_cf([_fire(r)], _MU, "longevity")
+
+
+def test_dynamic_token_resolving_to_unknown_planet_raises():
+    """If the resolved dasha lord isn't in the μ table, the engine
+    raises rather than silently dropping the rule."""
+    r = _rule("r", base_cf=-0.5, primary_planet="<ad_lord>")
+    ep = _stub_epoch_with_dashas(antar="UnknownPlanet")
+    with pytest.raises(CFEngineError, match="μ table"):
+        infer_cf(
+            [_fire(r)], _MU, "longevity", epoch_state=ep,
+        )
+
+
+def test_static_primary_planet_still_works_with_epoch_state():
+    """Backwards compatibility: static names ('Sun', 'Saturn') must
+    keep working even when epoch_state is provided. epoch_state is
+    only consulted for dynamic tokens."""
+    r = _rule("r", base_cf=-0.5, primary_planet="Saturn")
+    ep = _stub_epoch_with_dashas(antar="Mars")  # ignored — static
+    score, _ = infer_cf(
+        [_fire(r)], _MU, "longevity", epoch_state=ep,
+    )
+    # μ_Saturn=0.3 (static lookup, not <ad_lord> resolution)
+    assert score == pytest.approx(-0.15)

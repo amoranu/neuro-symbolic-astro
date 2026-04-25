@@ -26,6 +26,16 @@ _PARASHARI_PLANETS = frozenset({
     "Rahu", "Ketu",
 })
 
+# Dynamic-token primary_planet values. These resolve at fire time
+# from `EpochState.dashas` (see `engine.cf_engine._resolve_primary_
+# planet`). A rule using one of these tokens depends on the strength
+# of WHATEVER planet plays the named role on the chart at hand —
+# useful for "AD lord plays multi-roles" rules where the relevant
+# planet varies per chart.
+_DYNAMIC_PRIMARY_PLANET_TOKENS = frozenset({
+    "<md_lord>", "<ad_lord>", "<pd_lord>", "<sd_lord>",
+})
+
 
 _RULES_ROOT = Path(__file__).parent
 
@@ -496,11 +506,14 @@ def _validate_rule(
 
     primary_planet = raw.get("primary_planet")
     if primary_planet is not None:
-        if primary_planet not in _PARASHARI_PLANETS:
+        if (primary_planet not in _PARASHARI_PLANETS
+                and primary_planet not in _DYNAMIC_PRIMARY_PLANET_TOKENS):
             raise RuleLoadError(
                 f"rule {raw['rule_id']}: primary_planet="
                 f"{primary_planet!r} must be one of "
-                f"{sorted(_PARASHARI_PLANETS)}"
+                f"{sorted(_PARASHARI_PLANETS)} (static) or "
+                f"{sorted(_DYNAMIC_PRIMARY_PLANET_TOKENS)} (dynamic, "
+                f"resolved per-epoch from dasha stack)"
             )
     elif is_cf_native and not is_veto:
         raise RuleLoadError(
