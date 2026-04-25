@@ -41,12 +41,18 @@ SPLIT_SEED = 42
 
 
 def _to_birth(rec: Dict[str, Any]) -> BirthDetails:
+    g = rec.get("gender")
+    if g not in ("M", "F", None):
+        # Tolerate odd dataset values by clearing — BirthDetails will
+        # reject anything outside the recognized set.
+        g = None
     return BirthDetails(
         date=date.fromisoformat(rec["birth_date"][:10]),
         time=rec["birth_time"],
         tz=rec["tz"],
         lat=float(rec["lat"]),
         lon=float(rec["lon"]),
+        gender=g,
     )
 
 

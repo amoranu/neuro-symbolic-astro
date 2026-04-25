@@ -114,6 +114,14 @@ class EpochState:
     # does not (BPHS Ch. 66). See engine.ashtakavarga.bav_grid.
     ashtakavarga: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
+    # Native gender — "M", "F", or "" (unspecified). Sourced from
+    # `BirthDetails.gender`. Reachable via DSL path "native_gender".
+    # Used by gender-asymmetric karaka rules (spouse, certain progeny
+    # configurations). Father / mother / self-longevity rules are
+    # gender-independent per BPHS Ch. 32 and don't reference this
+    # field.
+    native_gender: str = ""
+
     def to_dict(self) -> Dict[str, Any]:
         out: Dict[str, Any] = {
             "epoch_id": self.epoch_id,
@@ -126,6 +134,7 @@ class EpochState:
                 planet: dict(grid)
                 for planet, grid in self.ashtakavarga.items()
             },
+            "native_gender": self.native_gender,
             "planets": {
                 name: asdict(ps) for name, ps in self.planets.items()
             },
@@ -149,5 +158,6 @@ class EpochState:
                 planet: dict(grid)
                 for planet, grid in d.get("ashtakavarga", {}).items()
             },
+            native_gender=d.get("native_gender", ""),
             planets=planets,
         )

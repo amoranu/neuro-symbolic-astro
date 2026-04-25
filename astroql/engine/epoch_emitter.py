@@ -669,4 +669,5 @@ def _build_epoch_for_chunk(
         natal_lagna_sign=natal_lagna["rashi"],
         derived_lords=derived_lords,
         ashtakavarga=bav_table,
+        native_gender=birth.gender or "",
     )
