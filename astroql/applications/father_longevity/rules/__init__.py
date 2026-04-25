@@ -1,76 +1,99 @@
 """Father longevity rule sets — versioned for ablation testing.
 
-Current canonical ruleset is v17. Earlier versions retained for
-historical comparison and ablation runs.
+Current canonical ruleset is **v15**. v16 through v28 are retained
+in ALL_VERSIONS for ablation/historical study only — they do not
+generalize to held-out data; see "Held-out validation finding"
+below.
 
 Version summary:
   v12 — Sun-karaka baseline (BPHS Ch. 41 + classical maraka theory)
   v13 — adds 9th/8th lord transit affliction family
   v14 — adds W-2 derived-lagna helpers + W-4 protective-PAD modifier
   v15 — adds derived-F-lord AD rule + standalone PD = F-loss-lord rule
-  v16 — exercises the engine v2 fields: combustion, graha yuddha,
-        Sphuta Drishti aspect strengths, D-9 Vargottama (later
-        dropped — chart-static), and a high-weight Mahamrityunjaya
-        protection (was a +1.0 veto, demoted to +0.85 non-veto per
-        review).
-  v17 — first targeted per-chart rule since v15. Adds AD=F8L with
-        Sun transit-dusthana + malefic MD, derived from
-        Schwarzenegger truth-AD diagnosis.
+        ← CANONICAL (best held-out generalization)
+  v16 — engine v2 fields: combustion, graha yuddha, Sphuta Drishti
+        aspect strengths, Mahamrityunjaya non-veto. Cost held-out
+        AD 11→10 and held-out PD 4→2.
+  v17–v28 — per-chart targeted rules tuned against the original 19
+        verified subjects. Each rule was validated against training
+        only (no held-out check). Held-out 20-subject test (added
+        2026-04-26) showed every one of these rules contributes ZERO
+        held-out improvement.
+
+Held-out validation finding (2026-04-26)
+========================================
+
+After expanding the dataset from 19 → 39, leave-one-out ablation
+showed that v17–v28's per-chart rules are pure memorization:
+
+  Cumulative version progression on held-out (n=20):
+    v15:  MD=19  AD=11  PD=4  SD=0  mean=346d
+    v16:  MD=19  AD=10  PD=2  SD=0  mean=387d  ← v16 already costs HO
+    v17:  MD=19  AD=10  PD=2  SD=0  mean=387d  ← unchanged through v28
+    v28:  MD=19  AD=10  PD=2  SD=0  mean=392d
+
+  Removing each rule cf17..cf28 individually changes only its target
+  chart in the training cohort and has zero effect on held-out.
+
+  Net: v28 vs v15 on held-out = -1 AD, -2 PD, +46d mean. Worse on
+  unseen data despite being "better" on the 19 training charts.
+
+The narrow conjunctive gates (4–5 simultaneous lord-identity
+constraints) that prevented training-set regressions also made every
+rule a chart-specific lookup. Each fires for exactly one truth epoch
+in the entire universe of charts.
+
+Methodology going forward
+=========================
+
+The 20 charts added with ids 27..46 (Hans Scholl through Tim Holt)
+are the **held-out test set**. They MUST NOT be used to design or
+validate new rules. Any candidate rule must satisfy:
+
+  1. Improves training metrics OR is neutral on training, AND
+  2. Does not degrade held-out metrics (HO Hit@MD/AD/PD/SD,
+     mean_days), AND
+  3. Has a defensible classical justification (BPHS, Jaimini, KP),
+     not a chart-specific gate.
+
+A candidate rule that improves training but degrades held-out is
+overfit and must be rejected — even if the targeted chart is the
+"obvious" maraka activation. The held-out reduction is the priority
+signal; training fit is secondary.
+
+Use the harness `astroql.applications.father_longevity.eval_split`
+(added 2026-04-26) to evaluate candidates with the proper
+train/held-out split BEFORE merging into RULES.
 
 Use:
   from astroql.applications.father_longevity.rules import RULES
-  # RULES is a list of CFRuleSpec — current canonical (= v17)
+  # RULES is a list of CFRuleSpec — current canonical (= v15)
+
+  from astroql.applications.father_longevity.rules import ALL_VERSIONS
+  # ALL_VERSIONS["v28"] available for ablation comparisons
 """
 from .v12 import RULES_V12
 from .v13 import RULES_V13
 from .v14 import RULES_V14
 from .v15 import RULES_V15
-from .v16 import RULES_V16
-from .v17 import RULES_V17
-from .v18 import RULES_V18
-from .v19 import RULES_V19
-from .v20 import RULES_V20  # noqa: F401 — preserved for ablation; not canonical
-from .v21 import RULES_V21
-from .v22 import RULES_V22
-from .v23 import RULES_V23  # noqa: F401 — preserved for ablation
-from .v24 import RULES_V24
-from .v25 import RULES_V25
-from .v26 import RULES_V26
-from .v27 import RULES_V27
-from .v28 import RULES_V28
+from .v16 import RULES_V16  # noqa: F401 — ablation only; HO regression
+from .v17 import RULES_V17  # noqa: F401 — ablation only; HO no-op
+from .v18 import RULES_V18  # noqa: F401 — ablation only
+from .v19 import RULES_V19  # noqa: F401 — ablation only
+from .v20 import RULES_V20  # noqa: F401 — ablation only
+from .v21 import RULES_V21  # noqa: F401 — ablation only
+from .v22 import RULES_V22  # noqa: F401 — ablation only
+from .v23 import RULES_V23  # noqa: F401 — ablation only
+from .v24 import RULES_V24  # noqa: F401 — ablation only
+from .v25 import RULES_V25  # noqa: F401 — ablation only
+from .v26 import RULES_V26  # noqa: F401 — ablation only
+from .v27 import RULES_V27  # noqa: F401 — ablation only
+from .v28 import RULES_V28  # noqa: F401 — ablation only
 
-# Current canonical ruleset.
-# v20 attempted but did not ship: Kelly's AD-gap was 0.006, too narrow
-# for any generalizable rule. Both broad and tightened v20 forms
-# regressed Beatty SD->PD and/or Taylor AD->MD, costing more than
-# Kelly's potential gain. Skipped to v21.
-# v21 = v19 + native-lagna maraka (2L/7L) targeting Douglas; expected
-# side-effect benefit on Farrow (Aries 2L+7L=Venus, truth AD=Venus).
-# v22 = v21 + multi-role-AD intensifier targeting Smith (Tau lagna,
-# Sat=9L+F2L). The disjointness gates in v15 suppress multi-role AD
-# planets to weakest-single-role; v22 re-imposes the combined weight.
-# v23 attempted but reverted: SD=9L rule fired too broadly across
-# charts — regressed Beatty (SD-bullseye -> MD-only) and Cage
-# (AD -> MD). The 9L planet is the same on every chart with that
-# lagna, so an "SD = 9L" gate fires on any Ven-Ven SD for Virgo,
-# Sun-Sun SD for Sag, etc. Without a chart-specific narrowing
-# (multi-role PD or similar), the rule is hostile to existing
-# wins. Eastwood gap (0.335) was too large to flip with one rule
-# anyway. Skipped v23 for canonical; preserved for ablation.
-# v25 = v24 + sva-pratyantara (PD=MD) F7L rule targeting Douglas
-# (Lib lagna; Jup=F7L truth Jup-Mar-Jup-Sat). Flipped Douglas MD-only
-# → PD-match (-7d). Side-effect benefit: also fires at Penn truth but
-# Penn picked has same dasha stack so neutral.
-# v26 = v25 + 4-level distinct-role maraka stack rule (MD=9L, AD=Sun,
-# PD=double-lagna-maraka, SD=F8L) targeting Kelly (Lib lagna; truth
-# Mer-Sun-Mar-Sat). Flipped Kelly MD-only → SD-match (-2d).
-# v27 = v26 + sva-sookshma F2L rule (MD=lagna_lord, AD=F8L, PD=F2L,
-# SD=PD-lord) targeting Ferguson (Lib lagna; truth Ven-Sat-Moo-Moo).
-# Flipped Ferguson MD-only → SD-match (-4d).
-# v28 = v27 + sva-sookshma-of-MD multi-role rule (MD=SD multi-role,
-# PD multi-role + F-loss, AD=F7L) targeting Gable (Sag lagna; truth
-# Mer-Sat-Moo-Mer with NONE-match).
-RULES = RULES_V28
+# Current canonical ruleset — v15 is the honest generalization point.
+# See the module docstring for the held-out validation finding that
+# led to this revert from v28.
+RULES = RULES_V15
 
 ALL_VERSIONS = {
     "v12": RULES_V12,
@@ -81,7 +104,7 @@ ALL_VERSIONS = {
     "v17": RULES_V17,
     "v18": RULES_V18,
     "v19": RULES_V19,
-    "v20": RULES_V20,  # ablation-only; see comment above
+    "v20": RULES_V20,
     "v21": RULES_V21,
     "v22": RULES_V22,
     "v23": RULES_V23,
