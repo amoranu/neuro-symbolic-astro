@@ -1,6 +1,6 @@
 """Father longevity rule sets — versioned for ablation testing.
 
-Current canonical ruleset is v15. Earlier versions retained for
+Current canonical ruleset is v16. Earlier versions retained for
 historical comparison and ablation runs.
 
 Version summary:
@@ -8,25 +8,32 @@ Version summary:
   v13 — adds 9th/8th lord transit affliction family
   v14 — adds W-2 derived-lagna helpers + W-4 protective-PAD modifier
   v15 — adds derived-F-lord AD rule + standalone PD = F-loss-lord rule
+  v16 — exercises the engine v2 fields: combustion, graha yuddha,
+        Sphuta Drishti aspect strengths, D-9 Vargottama, and the
+        first protective veto (mahamrityunjaya, with mixed-veto
+        cancellation in cf_engine).
 
 Use:
   from astroql.applications.father_longevity.rules import RULES
-  # RULES is a list of CFRuleSpec — current canonical (= v15)
+  # RULES is a list of CFRuleSpec — current canonical (= v16)
 """
 from .v12 import RULES_V12
 from .v13 import RULES_V13
 from .v14 import RULES_V14
 from .v15 import RULES_V15
+from .v16 import RULES_V16
 
 # Current canonical ruleset.
-RULES = RULES_V15
+RULES = RULES_V16
 
 ALL_VERSIONS = {
     "v12": RULES_V12,
     "v13": RULES_V13,
     "v14": RULES_V14,
     "v15": RULES_V15,
+    "v16": RULES_V16,
 }
 
 __all__ = ["RULES", "ALL_VERSIONS",
-           "RULES_V12", "RULES_V13", "RULES_V14", "RULES_V15"]
+           "RULES_V12", "RULES_V13", "RULES_V14",
+           "RULES_V15", "RULES_V16"]

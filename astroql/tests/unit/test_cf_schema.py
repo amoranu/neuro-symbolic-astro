@@ -268,6 +268,119 @@ def test_modifier_missing_condition_rejected(schema):
         _validate_rule(raw, schema)
 
 
+# ── DSL-form modifier conditions (LLM-autonomous path) ──────────────
+
+def test_modifier_dsl_path_condition_accepted(schema):
+    """Modifier conditions can be DSL-form ({path, op, value}) instead
+    of legacy YAML feature-form. Validates shape/op without consulting
+    features_schema.yaml — these paths walk EpochState live."""
+    raw = _base_rule(
+        rule_id="test.modifier_dsl_leaf",
+        base_cf=-0.5,
+        primary_planet="Sun",
+        modifiers=[{
+            "condition": {
+                "path": "planets.Saturn.is_retrograde",
+                "op": "==", "value": True,
+            },
+            "effect_cf": -0.1,
+            "explanation": "Saturn retrograde intensifier",
+        }],
+    )
+    rule = _validate_rule(raw, schema)
+    assert len(rule.modifiers) == 1
+    assert rule.modifiers[0].condition["path"] == (
+        "planets.Saturn.is_retrograde"
+    )
+
+
+def test_modifier_dsl_combinator_accepted(schema):
+    raw = _base_rule(
+        rule_id="test.modifier_dsl_combinator",
+        base_cf=-0.5,
+        primary_planet="Sun",
+        modifiers=[{
+            "condition": {
+                "any": [
+                    {"path": "dashas.antar", "op": "==", "value": "Saturn"},
+                    {"path": "dashas.pratyantar", "op": "==",
+                     "value": "Saturn"},
+                ],
+            },
+            "effect_cf": -0.1,
+        }],
+    )
+    rule = _validate_rule(raw, schema)
+    assert "any" in rule.modifiers[0].condition
+
+
+def test_modifier_dsl_unknown_op_rejected(schema):
+    raw = _base_rule(
+        rule_id="test.modifier_dsl_bad_op",
+        base_cf=-0.5,
+        primary_planet="Sun",
+        modifiers=[{
+            "condition": {
+                "path": "dashas.maha", "op": "approx_eq",
+                "value": "Saturn",
+            },
+            "effect_cf": -0.1,
+        }],
+    )
+    with pytest.raises(RuleLoadError, match="unknown DSL op"):
+        _validate_rule(raw, schema)
+
+
+def test_modifier_dsl_combinator_with_empty_inner_rejected(schema):
+    """Vacuous-true conditions are allowed at top level (legacy
+    Python-lambda fallback marker), but never inside combinators —
+    they would silently swallow logic."""
+    raw = _base_rule(
+        rule_id="test.modifier_dsl_empty_in_combinator",
+        base_cf=-0.5,
+        primary_planet="Sun",
+        modifiers=[{
+            "condition": {"all": [{}]},
+            "effect_cf": -0.1,
+        }],
+    )
+    with pytest.raises(RuleLoadError, match="empty condition"):
+        _validate_rule(raw, schema)
+
+
+def test_modifier_empty_condition_top_level_allowed(schema):
+    """Vacuous condition at top level is the legacy 'use Python-lambda
+    predicate' marker (cf_engine dual-path). Loader accepts it."""
+    raw = _base_rule(
+        rule_id="test.modifier_empty_top",
+        base_cf=-0.5,
+        primary_planet="Sun",
+        modifiers=[{"condition": {}, "effect_cf": -0.1}],
+    )
+    rule = _validate_rule(raw, schema)
+    assert rule.modifiers[0].condition == {}
+
+
+def test_modifier_legacy_feature_form_still_accepted(schema):
+    """YAML rules use {feature, op, value} — must continue to validate
+    against features_schema.yaml without going through the DSL path."""
+    raw = _base_rule(
+        rule_id="test.modifier_feature_form",
+        base_cf=-0.5,
+        primary_planet="Sun",
+        modifiers=[{
+            "condition": {
+                "feature": "primary_house_data.rotated.lord_retrograde",
+                "op": "eq",
+                "value": True,
+            },
+            "effect_cf": -0.1,
+        }],
+    )
+    rule = _validate_rule(raw, schema)
+    assert "feature" in rule.modifiers[0].condition
+
+
 def test_provenance_citation_missing_source_id_rejected(schema):
     raw = _base_rule(
         rule_id="test.prov_missing_sid",

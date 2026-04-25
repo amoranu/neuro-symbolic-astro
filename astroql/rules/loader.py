@@ -41,6 +41,16 @@ _VALID_OPS = {
     "contains", "contains_any", "expr",
 }
 
+# DSL ops accepted on CF-native modifier conditions (and any condition
+# that runs through `engine.dsl_evaluator` against an EpochState live).
+# Kept in lockstep with `engine.dsl_evaluator._BINARY_OPS` /
+# `_UNARY_OPS`. If you add a DSL op there, mirror it here.
+_VALID_DSL_BINARY_OPS = {
+    "==", "!=", "<", "<=", ">", ">=",
+    "in", "not_in", "is_in_set", "contains",
+}
+_VALID_DSL_UNARY_OPS = {"truthy", "falsy"}
+
 
 def _canonicalize_feature_path(path: str) -> str:
     """Replace concrete planet names in a feature path with the `<planet>`
@@ -113,6 +123,140 @@ def _validate_antecedent(
         f"unknown feature path {path!r} (canonical: {canon!r}). "
         f"Add it to features_schema.yaml before referencing in rules."
     )
+
+
+def _validate_dsl_condition(
+    cond: Dict[str, Any],
+    rule_id: str,
+    location: str,
+    *,
+    allow_empty: bool = True,
+    _depth: int = 0,
+) -> None:
+    """Structural check for a CF-native DSL condition (the form
+    evaluated live against an EpochState by `engine.dsl_evaluator`).
+
+    Accepts:
+      * `{}` (vacuous) — only when `allow_empty` is True. Used as the
+        "fall back to legacy Python-lambda predicate" marker on
+        `CFRuleSpec.modifier_predicates`.
+      * `{path, op, value}`  binary leaf
+      * `{path, op}` for unary ops (`truthy`/`falsy`) — no value
+      * `{all|any|not: <node|[node, ...]>}` logical combinators
+        (recursive — empty inner conditions are NOT permitted inside
+        combinators since vacuous-truth would silently swallow logic).
+
+    The `path` is NOT looked up against features_schema.yaml — DSL
+    paths walk EpochState attributes/keys and are validated at
+    runtime by `dsl_evaluator.resolve_path`. We only check shape
+    and op validity here.
+    """
+    if not isinstance(cond, dict):
+        raise RuleLoadError(
+            f"rule {rule_id} {location}: must be a dict, got "
+            f"{type(cond).__name__}"
+        )
+    if not cond:
+        if allow_empty and _depth == 0:
+            return
+        raise RuleLoadError(
+            f"rule {rule_id} {location}: empty condition not allowed "
+            f"inside combinator (would short-circuit to vacuous true)"
+        )
+    # Strict shape check: a condition node is EITHER a combinator
+    # (exactly one of all/any/not) OR a leaf (path + op + optional
+    # value). Mixing combinators with each other or with leaf keys is
+    # a footgun — typically an LLM author meant a nested combinator.
+    combinator_keys = sorted({"all", "any", "not"}.intersection(cond))
+    leaf_keys = sorted({"path", "op", "value"}.intersection(cond))
+    allowed_keys = set(combinator_keys) | set(leaf_keys)
+    extras = set(cond) - allowed_keys
+    if extras:
+        raise RuleLoadError(
+            f"rule {rule_id} {location}: unknown key(s) {sorted(extras)}. "
+            f"Valid leaf keys: path/op/value. Valid combinators: "
+            f"all/any/not. Likely a typo (e.g. 'description' instead "
+            f"of 'explanation' on the parent modifier)."
+        )
+    if len(combinator_keys) > 1:
+        raise RuleLoadError(
+            f"rule {rule_id} {location}: combinator collision "
+            f"{combinator_keys} — pick one and nest the other inside "
+            f"its clause list. Mixing two combinators in one node is "
+            f"ambiguous."
+        )
+    if combinator_keys and leaf_keys:
+        raise RuleLoadError(
+            f"rule {rule_id} {location}: cannot mix combinator "
+            f"({combinator_keys}) and leaf ({leaf_keys}) keys in one "
+            f"condition"
+        )
+    if combinator_keys:
+        key = combinator_keys[0]
+        if key in ("all", "any"):
+            clauses = cond[key]
+            if not isinstance(clauses, list) or not clauses:
+                raise RuleLoadError(
+                    f"rule {rule_id} {location}: '{key}' clauses must "
+                    f"be a non-empty list"
+                )
+            for j, sub in enumerate(clauses):
+                _validate_dsl_condition(
+                    sub, rule_id, f"{location}.{key}[{j}]",
+                    allow_empty=False, _depth=_depth + 1,
+                )
+            return
+        # key == "not"
+        _validate_dsl_condition(
+            cond["not"], rule_id, f"{location}.not",
+            allow_empty=False, _depth=_depth + 1,
+        )
+        return
+    # Leaf clause
+    if "path" not in cond:
+        raise RuleLoadError(
+            f"rule {rule_id} {location}: leaf condition missing 'path'"
+        )
+    path = cond["path"]
+    if not isinstance(path, str) or not path:
+        raise RuleLoadError(
+            f"rule {rule_id} {location}: 'path' must be a non-empty "
+            f"string, got {path!r}"
+        )
+    # Defensive: dunder segments would let a path walk Python's class
+    # hierarchy via getattr (`planets.__class__.__bases__...`). EpochState
+    # carries no dunder-named attributes — any dunder segment is either
+    # a typo or an attempt to escape the data model. Reject.
+    for seg in path.split("."):
+        if seg.startswith("__") and seg.endswith("__"):
+            raise RuleLoadError(
+                f"rule {rule_id} {location}: path segment {seg!r} "
+                f"looks like a dunder attribute. EpochState exposes "
+                f"no dunder-named fields; reject as defensive."
+            )
+    if "op" not in cond:
+        raise RuleLoadError(
+            f"rule {rule_id} {location}: leaf condition missing 'op'"
+        )
+    op = cond["op"]
+    if op in _VALID_DSL_UNARY_OPS:
+        if "value" in cond:
+            raise RuleLoadError(
+                f"rule {rule_id} {location}: unary op {op!r} must "
+                f"not carry a 'value' field"
+            )
+    elif op in _VALID_DSL_BINARY_OPS:
+        if "value" not in cond:
+            raise RuleLoadError(
+                f"rule {rule_id} {location}: binary op {op!r} requires "
+                f"a 'value' field"
+            )
+    else:
+        raise RuleLoadError(
+            f"rule {rule_id} {location}: unknown DSL op {op!r}. "
+            f"Valid binary: {sorted(_VALID_DSL_BINARY_OPS)}; "
+            f"unary: {sorted(_VALID_DSL_UNARY_OPS)}"
+        )
 
 
 def _validate_rule(
@@ -310,7 +454,24 @@ def _validate_rule(
                 f"rule {raw['rule_id']} modifier[{i}] needs "
                 f"'condition' dict"
             )
-        _validate_antecedent(cond, schema)
+        # Modifier conditions accept two interchangeable forms:
+        #   * Legacy YAML form: {feature, op, value} — validated
+        #     against features_schema.yaml. Used by curated rules in
+        #     astroql/rules/<school>/*.yaml.
+        #   * DSL form: {path, op, value} or combinator nodes —
+        #     evaluated live against an EpochState by
+        #     `engine.dsl_evaluator`. Used by CF-native Python rules
+        #     and LLM-emitted rules.
+        # An empty `condition={}` is the "fall back to legacy Python-
+        # lambda predicate" marker (see cf_engine.infer_cf dual-path
+        # docstring) — accepted at the top level only.
+        if cond and "feature" in cond:
+            _validate_antecedent(cond, schema)
+        else:
+            _validate_dsl_condition(
+                cond, raw["rule_id"], f"modifier[{i}].condition",
+                allow_empty=True,
+            )
         if "effect_cf" not in m:
             raise RuleLoadError(
                 f"rule {raw['rule_id']} modifier[{i}] missing effect_cf"
@@ -433,21 +594,32 @@ def _validate_rule(
 
 
 def validate_yoga_bhanga(rules: List[Rule]) -> None:
-    """Yoga-bhanga (§3.B step 3): only a veto can subsume a veto.
+    """Yoga-bhanga (§3.B step 3) cross-rule invariants:
+      * Only a veto can subsume a veto.
+      * No rule may subsume itself (1-cycle / copy-paste error).
+      * No cycle may exist in the subsumes_rules graph (A→B→A is
+        ambiguous: which yoga-bhangs which?). Cycles entirely outside
+        the loaded set (forward references to absent targets) are
+        ignored — they're handled at evaluation time.
 
     Call after loading all rules across all files, since subsumption
     targets may live in a different file. Raises RuleLoadError on
     violation.
     """
     by_id = {r.rule_id: r for r in rules}
+
+    # Self-subsumption + sign-mismatch checks (per-edge).
     for r in rules:
         for target_id in r.subsumes_rules:
+            if target_id == r.rule_id:
+                raise RuleLoadError(
+                    f"yoga-bhanga violation: rule {r.rule_id!r} "
+                    f"subsumes itself. Self-subsumption is "
+                    f"meaningless — drop the entry."
+                )
             target = by_id.get(target_id)
             if target is None:
-                continue  # Forward reference to a rule not yet loaded
-                # or cross-tradition reference; let the engine report
-                # missing targets at evaluation time rather than fail
-                # the whole load.
+                continue  # Forward reference; engine handles at eval.
             if target.is_veto and not r.is_veto:
                 raise RuleLoadError(
                     f"yoga-bhanga violation: non-veto rule "
@@ -455,6 +627,35 @@ def validate_yoga_bhanga(rules: List[Rule]) -> None:
                     f"{target_id!r}. Only another veto (yoga-bhanga) "
                     f"may neutralize a veto."
                 )
+
+    # Cycle detection in the subsumes_rules graph (DFS, edges restricted
+    # to in-set targets — forward references can't form a cycle here).
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: Dict[str, int] = {r.rule_id: WHITE for r in rules}
+
+    def _dfs(node: str, path: List[str]) -> None:
+        color[node] = GRAY
+        target_ids = by_id[node].subsumes_rules if node in by_id else []
+        for target_id in target_ids:
+            if target_id not in by_id:
+                continue
+            if color[target_id] == GRAY:
+                # Found a back-edge — cycle.
+                cyc_start = path.index(target_id)
+                cycle_chain = path[cyc_start:] + [target_id]
+                raise RuleLoadError(
+                    f"yoga-bhanga violation: subsumption cycle "
+                    f"{' -> '.join(cycle_chain)}. A cycle is "
+                    f"ambiguous (which rule wins?); break it by "
+                    f"removing one edge."
+                )
+            if color[target_id] == WHITE:
+                _dfs(target_id, path + [target_id])
+        color[node] = BLACK
+
+    for r in rules:
+        if color.get(r.rule_id, BLACK) == WHITE:
+            _dfs(r.rule_id, [r.rule_id])
 
 
 class StructuredRuleLibrary:
