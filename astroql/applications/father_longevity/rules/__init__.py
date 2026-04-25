@@ -37,6 +37,7 @@ from .v24 import RULES_V24
 from .v25 import RULES_V25
 from .v26 import RULES_V26
 from .v27 import RULES_V27
+from .v28 import RULES_V28
 
 # Current canonical ruleset.
 # v20 attempted but did not ship: Kelly's AD-gap was 0.006, too narrow
@@ -65,7 +66,11 @@ from .v27 import RULES_V27
 # Mer-Sun-Mar-Sat). Flipped Kelly MD-only → SD-match (-2d).
 # v27 = v26 + sva-sookshma F2L rule (MD=lagna_lord, AD=F8L, PD=F2L,
 # SD=PD-lord) targeting Ferguson (Lib lagna; truth Ven-Sat-Moo-Moo).
-RULES = RULES_V27
+# Flipped Ferguson MD-only → SD-match (-4d).
+# v28 = v27 + sva-sookshma-of-MD multi-role rule (MD=SD multi-role,
+# PD multi-role + F-loss, AD=F7L) targeting Gable (Sag lagna; truth
+# Mer-Sat-Moo-Mer with NONE-match).
+RULES = RULES_V28
 
 ALL_VERSIONS = {
     "v12": RULES_V12,
@@ -84,6 +89,7 @@ ALL_VERSIONS = {
     "v25": RULES_V25,
     "v26": RULES_V26,
     "v27": RULES_V27,
+    "v28": RULES_V28,
 }
 
 __all__ = ["RULES", "ALL_VERSIONS",
@@ -92,4 +98,4 @@ __all__ = ["RULES", "ALL_VERSIONS",
            "RULES_V18", "RULES_V19", "RULES_V20",
            "RULES_V21", "RULES_V22", "RULES_V23",
            "RULES_V24", "RULES_V25", "RULES_V26",
-           "RULES_V27"]
+           "RULES_V27", "RULES_V28"]
