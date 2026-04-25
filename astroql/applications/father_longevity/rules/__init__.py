@@ -1,10 +1,10 @@
 """Father longevity rule sets — versioned for ablation testing.
 
-Current canonical ruleset is **v37** (v15 baseline + two sphuta-
-aspect refinements: v31 at 5° orb, v37 at 3° orb). v16 through v28
-are retained in ALL_VERSIONS for ablation/historical study only —
-they do not generalize to held-out data; see "Held-out validation
-finding" below.
+Current canonical ruleset is **v38** (v15 baseline + three sphuta-
+aspect refinements: v31 at AD/5°, v37 at AD/3°, v38 at PD/3°).
+v16 through v28 are retained in ALL_VERSIONS for ablation/historical
+study only — they do not generalize to held-out data; see "Held-out
+validation finding" below.
 
 Version summary:
   v12 — Sun-karaka baseline (BPHS Ch. 41 + classical maraka theory)
@@ -31,8 +31,11 @@ Version summary:
         v34 combust+F-role AD — too narrow, no signal
         v35 graha-yuddha-lost AD — HO regression -3 deeper hits
         v36 9L-as-aspector — HO PD -1
-  v37 — inner-orb (3°) refinement of v31, stacking on top.
-        ACCEPTED. ← CANONICAL.
+  v37 — AD-level inner-orb (3°) refinement of v31, stacking.
+        ACCEPTED.
+  v38 — PD-level inner-orb (3°) sphuta-aspect on Sun, stacking on
+        top of v37 (paired with v37 since v32's PD-level @ 5° was
+        too noisy). ACCEPTED. ← CANONICAL.
 
 Held-out validation finding (2026-04-26)
 ========================================
@@ -112,20 +115,21 @@ from .v34 import RULES_V34  # noqa: F401 — REJECTED (HO+train methodology)
 from .v35 import RULES_V35  # noqa: F401 — REJECTED (HO+train methodology)
 from .v36 import RULES_V36  # noqa: F401 — REJECTED (HO+train methodology)
 from .v37 import RULES_V37
+from .v38 import RULES_V38
 
 # Current canonical ruleset.
 #
 # v15 was the honest baseline (see module docstring for the held-out
 # finding that led to the revert from v28).
 #
-# v31 = v15 + sphuta-aspect refinement of binary v15 aspect rules
-# (`malefic_AD_with_sphuta_aspect_on_natal_sun.cf31`, orb >= 0.5).
-# v37 = v31 + tighter-orb (>= 0.7 = ~3°) variant stacking on top.
+# v31 = v15 + AD-level sphuta-aspect on natal Sun (>= 0.5 orb)
+# v37 = v31 + AD-level inner-orb (>= 0.7) refinement, stacking
+# v38 = v37 + PD-level inner-orb (>= 0.7) sphuta-aspect on Sun
 # v32-v36 each rejected (see those modules for rejection reasons).
-# v37 acceptance vs v15 cumulative:
-#   Train: +1 AD (6→7), mean 417d → 401d (-15d)
-#   HO:    no hit changes, mean 347d → 333d (-14d)
-RULES = RULES_V37
+# v38 acceptance vs v15 cumulative:
+#   Train: +1 AD (6→7), mean 417d → 405d (-12d)
+#   HO:    no hit changes, mean 347d → 329d (-18d)
+RULES = RULES_V38
 
 ALL_VERSIONS = {
     "v12": RULES_V12,
@@ -154,6 +158,7 @@ ALL_VERSIONS = {
     "v35": RULES_V35,
     "v36": RULES_V36,
     "v37": RULES_V37,
+    "v38": RULES_V38,
 }
 
 __all__ = ["RULES", "ALL_VERSIONS",
@@ -165,4 +170,4 @@ __all__ = ["RULES", "ALL_VERSIONS",
            "RULES_V27", "RULES_V28", "RULES_V29",
            "RULES_V30", "RULES_V31", "RULES_V32",
            "RULES_V33", "RULES_V34", "RULES_V35",
-           "RULES_V36", "RULES_V37"]
+           "RULES_V36", "RULES_V37", "RULES_V38"]
