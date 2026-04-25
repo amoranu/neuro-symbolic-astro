@@ -1,10 +1,10 @@
 """Father longevity rule sets — versioned for ablation testing.
 
-Current canonical ruleset is **v38** (v15 baseline + three sphuta-
-aspect refinements: v31 at AD/5°, v37 at AD/3°, v38 at PD/3°).
-v16 through v28 are retained in ALL_VERSIONS for ablation/historical
-study only — they do not generalize to held-out data; see "Held-out
-validation finding" below.
+Current canonical ruleset is **v39** (v15 baseline + four sphuta-
+aspect refinements: v31 at AD/5°, v37 at AD/3°, v38 at PD/3°, v39
+any-malefic/3°). v16 through v28 are retained in ALL_VERSIONS for
+ablation/historical study only — they do not generalize to held-out
+data; see "Held-out validation finding" below.
 
 Version summary:
   v12 — Sun-karaka baseline (BPHS Ch. 41 + classical maraka theory)
@@ -35,7 +35,13 @@ Version summary:
         ACCEPTED.
   v38 — PD-level inner-orb (3°) sphuta-aspect on Sun, stacking on
         top of v37 (paired with v37 since v32's PD-level @ 5° was
-        too noisy). ACCEPTED. ← CANONICAL.
+        too noisy). ACCEPTED.
+  v39 — ANY-malefic tight-orb (3°) sphuta-aspect on Sun (catches
+        the case where the malefic-aspector is not the dasha-lord),
+        gated by MD context. Strongest accept yet:
+          Train: +1 AD, +1 PD, -11d mean, -34d median
+          HO:    same hits, +1d mean, -15d median
+        ACCEPTED. ← CANONICAL.
 
 Held-out validation finding (2026-04-26)
 ========================================
@@ -116,6 +122,7 @@ from .v35 import RULES_V35  # noqa: F401 — REJECTED (HO+train methodology)
 from .v36 import RULES_V36  # noqa: F401 — REJECTED (HO+train methodology)
 from .v37 import RULES_V37
 from .v38 import RULES_V38
+from .v39 import RULES_V39
 
 # Current canonical ruleset.
 #
@@ -125,11 +132,13 @@ from .v38 import RULES_V38
 # v31 = v15 + AD-level sphuta-aspect on natal Sun (>= 0.5 orb)
 # v37 = v31 + AD-level inner-orb (>= 0.7) refinement, stacking
 # v38 = v37 + PD-level inner-orb (>= 0.7) sphuta-aspect on Sun
+# v39 = v38 + ANY-malefic tight-orb (>= 0.7) sphuta-aspect on Sun
+#       (not restricted to dasha-lord), gated by MD context
 # v32-v36 each rejected (see those modules for rejection reasons).
-# v38 acceptance vs v15 cumulative:
-#   Train: +1 AD (6→7), mean 417d → 405d (-12d)
-#   HO:    no hit changes, mean 347d → 329d (-18d)
-RULES = RULES_V38
+# v39 acceptance vs v15 cumulative:
+#   Train: +2 AD (6→8), +1 PD (1→2), mean 417d → 394d (-23d)
+#   HO:    same hits, mean 347d → 330d (-17d), median 316 → 271 (-45d)
+RULES = RULES_V39
 
 ALL_VERSIONS = {
     "v12": RULES_V12,
@@ -159,6 +168,7 @@ ALL_VERSIONS = {
     "v36": RULES_V36,
     "v37": RULES_V37,
     "v38": RULES_V38,
+    "v39": RULES_V39,
 }
 
 __all__ = ["RULES", "ALL_VERSIONS",
@@ -170,4 +180,5 @@ __all__ = ["RULES", "ALL_VERSIONS",
            "RULES_V27", "RULES_V28", "RULES_V29",
            "RULES_V30", "RULES_V31", "RULES_V32",
            "RULES_V33", "RULES_V34", "RULES_V35",
-           "RULES_V36", "RULES_V37", "RULES_V38"]
+           "RULES_V36", "RULES_V37", "RULES_V38",
+           "RULES_V39"]
